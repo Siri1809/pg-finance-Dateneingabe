@@ -38,32 +38,30 @@ def get_onedrive_token():
     return None
 
 def create_initial_excel_on_onedrive(token):
-    """Erstellt die kunden_pins.xlsx mit Ihren Wunsch-PINs direkt auf OneDrive."""
+    """Erstellt eine saubere kunden_pins.xlsx auf OneDrive, falls diese fehlt."""
     try:
-        # Prüfen, ob die Excel bereits existiert
-        check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx"
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx"
         headers = {"Authorization": f"Bearer {token}"}
-        check_res = requests.get(check_url, headers=headers)
+        check_res = requests.get(url, headers=headers)
         
-        if check_res.status_code == 404: # Datei existiert noch nicht
-            # Erstellt die Excel mit den Spalten und Ihren Wunsch-PINs
+        if check_res.status_code == 404: # Nur erstellen, wenn sie wirklich fehlt
             df = pd.DataFrame([
-                {"PIN": 1234, "Vorname": "Patrick", "Nachname": "Grellner", "Status": "Bereit"},
-                {"PIN": 0, "Vorname": "Simon", "Nachname": "Seyschab", "Status": "Bereit"} # '0000' als Zahl formatiert
+                {"PIN": "1234", "Vorname": "Patrick", "Nachname": "Grellner", "Status": "Bereit"},
+                {"PIN": "0000", "Vorname": "Simon", "Nachname": "Seyschab", "Status": "Bereit"}
             ])
             output = BytesIO()
+            # xlsxwriter schreibt die XML-Strukturen absolut sauber und fehlerfrei für SharePoint
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 df.to_excel(writer, index=False)
             output.seek(0)
             
-            # Hochladen in den Ordner pg_finance_Dateneingabe
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
             requests.put(upload_url, headers=headers, data=output.getvalue())
     except Exception:
         pass
 
 def read_excel_from_onedrive(token):
-    """Liest die kunden_pins.xlsx aus dem OneDrive-Ordner 'pg_finance_Dateneingabe'."""
+    """Liest die kunden_pins.xlsx aus dem OneDrive-Ordner."""
     try:
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
@@ -73,12 +71,10 @@ def read_excel_from_onedrive(token):
             df = pd.read_excel(BytesIO(response.content))
             datenbank = {}
             for _, row in df.iterrows():
-                # Formatiert PINs sauber als Text (damit auch '0000' oder '1234' klappen)
                 raw_pin = str(row["PIN"]).strip()
-                if raw_pin.endswith(".0"): # Entfernt Kommastellen von Excel
+                if raw_pin.endswith(".0"): 
                     raw_pin = raw_pin[:-2]
                 
-                # Füllt führende Nullen bei 4-stelligen PINs auf (z.B. aus '0' wird '0000')
                 if len(raw_pin) < 4 and raw_pin.isdigit():
                     raw_pin = raw_pin.zfill(4)
                     
@@ -88,10 +84,6 @@ def read_excel_from_onedrive(token):
                     "status": str(row.get("Status", "Bereit")).strip()
                 }
             return datenbank
-        elif response.status_code == 404:
-            # Falls die Excel fehlt, erstellen wir sie automatisch!
-            create_initial_excel_on_onedrive(token)
-            return read_excel_from_onedrive(token)
     except Exception:
         pass
     return {}
@@ -108,16 +100,13 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     aktuelle_jahreszahl = datetime.now().strftime("%Y")
     name_teil, endung = os.path.splitext(file_name)
     
-    # 1. Namen mit Jahreszahl versehen (z. B. Fahrzeugschein_2026.pdf)
     neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
     
-    # 2. Prüfen, ob die Datei mit diesem Jahr bereits existiert (Überschreibschutz!)
     zaehler = 1
     while check_file_exists_on_onedrive(token, path_structure, neuer_dateiname):
         neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}_{zaehler}{endung}"
         zaehler += 1
         
-    # 3. Datei hochladen
     url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{neuer_dateiname}:/content"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -134,7 +123,6 @@ def update_excel_status_on_onedrive(token, pin_to_update):
         if response.status_code == 200:
             df = pd.read_excel(BytesIO(response.content))
             
-            # PINs als Strings vergleichen
             df["PIN_Str"] = df["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
             df.loc[df["PIN_Str"] == str(pin_to_update).replace(".0", ""), "Status"] = "Ausgefüllt"
             df.drop(columns=["PIN_Str"], inplace=True)
@@ -148,11 +136,11 @@ def update_excel_status_on_onedrive(token, pin_to_update):
     except Exception:
         pass
 
-# Token und Datenbank generieren
+# Token und Datenbank laden
 token = get_onedrive_token()
 KUNDEN_DATENBANK = read_excel_from_onedrive(token) if token else {}
 
-# Lokales Backup (NUR aktiv, falls absolut keine Verbindung aufgebaut werden kann)
+# Sicheres Fallback, damit Simons PIN 0000 und Patricks PIN 1234 immer funktionieren!
 if not KUNDEN_DATENBANK:
     KUNDEN_DATENBANK = {
         "0000": {"nachname": "Seyschab", "vorname": "Simon", "status": "Bereit"},
@@ -433,7 +421,7 @@ Garage: {garage}
                     # 1. ERSTELLT DIE EXCEL-DATEI BEIM ALLERERSTEN ABSENDEN IM HINTERGRUND!
                     create_initial_excel_on_onedrive(token)
                     
-                    # 2. Lädt die Kundendaten hoch (Mit automatischem Überschreibschutz!)
+                    # 2. Lädt die Kundendaten hoch
                     upload_file_to_onedrive(token, vollstaendiger_upload_pfad, "Kopier_Vorlage.txt", infotext.encode("utf-8"))
                     
                     if fahrzeugschein:
