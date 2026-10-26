@@ -49,7 +49,6 @@ def create_initial_csv_on_onedrive(token):
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            # Erstellt die CSV mit allen Spalten, um KeyErrors von Anfang an zu verhindern!
             csv_content = "PIN,Vorname,Nachname,Geburtsort,Familienstand,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Weitere_Fahrer\n"
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
             requests.put(upload_url, headers=headers, data=csv_content.encode("utf-8"))
@@ -117,15 +116,16 @@ def save_database_to_onedrive(token, df):
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# KORREKTE ERGÄNZUNG: Zwingt den DataFrame, alle Spalten zu besitzen, um KeyErrors auszuschließen!
+# Zwingt den DataFrame, alle Spalten zu besitzen, um KeyErrors auszuschließen
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Geburtsort", "Familienstand", "Kennzeichen", "Fahrleistung", "Kilometerstand", "Garage", "Weitere_Fahrer"]
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
 
 # Bereinigung der PINs im DataFrame, falls die Tabelle gelesen werden konnte
-df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
-df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
+if not df_db.empty:
+    df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
+    df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
 
 # CSS (Unverändert!)
 st.markdown("""
@@ -329,6 +329,7 @@ if is_master_pin or is_valid_customer:
             kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
             ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
             
+            # KORREKTUR: Führt den Split erst aus, wenn WIRKLICH ein Kunde ausgewählt wurde (Löst den AttributeError!)
             if ausgewaehlter_kunden_name:
                 nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
                 vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
@@ -375,7 +376,7 @@ if is_master_pin or is_valid_customer:
                 st.markdown("<span class='makler-label'>Verzeichnete Fahrerdaten</span>", unsafe_allow_html=True)
                 st.code(str(k_row.get("Weitere_Fahrer", "Keine weiteren Fahrer verzeichnet")), language="text")
             else:
-                st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
+                st.info("Bitte wählen Sie einen Kunden aus.")
         else:
             st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
 
@@ -521,7 +522,7 @@ if is_master_pin or is_valid_customer:
             pflicht_wf = True
             
         pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
-                                     and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
+                                 and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
 
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
