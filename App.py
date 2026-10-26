@@ -19,7 +19,6 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-@st.cache_data(ttl=600) # RESSOURCEN-SCHUTZ: Cachet die Token-Abfrage für 10 Minuten (600 Sekunden)
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
     try:
@@ -38,47 +37,61 @@ def get_onedrive_token():
         pass
     return None
 
-def create_initial_csv_on_onedrive(token):
-    """Erstellt eine leere kunden_pins.csv auf OneDrive, falls diese fehlt."""
+def create_initial_excel_on_onedrive(token):
+    """Erstellt die kunden_pins.xlsx mit Ihren Wunsch-PINs direkt auf OneDrive."""
     try:
-        # Prüfen, ob die CSV bereits existiert
-        check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv"
+        # Prüfen, ob die Excel bereits existiert
+        check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx"
         headers = {"Authorization": f"Bearer {token}"}
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei existiert noch nicht
-            # Strukturierte CSV-Vorlage erstellen
-            csv_data = "PIN,Vorname,Nachname,Status\n1234,Patrick,Grellner,Bereit\n0000,Simon,Seyschab,Bereit\n"
+            # Erstellt die Excel mit den Spalten und Ihren Wunsch-PINs
+            df = pd.DataFrame([
+                {"PIN": 1234, "Vorname": "Patrick", "Nachname": "Grellner", "Status": "Bereit"},
+                {"PIN": 0, "Vorname": "Simon", "Nachname": "Seyschab", "Status": "Bereit"} # '0000' als Zahl formatiert
+            ])
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False)
+            output.seek(0)
             
             # Hochladen in den Ordner pg_finance_Dateneingabe
-            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
-            requests.put(upload_url, headers=headers, data=csv_data.encode("utf-8"))
+            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
+            requests.put(upload_url, headers=headers, data=output.getvalue())
     except Exception:
         pass
 
-@st.cache_data(ttl=300) # RESSOURCEN-SCHUTZ: Fragt OneDrive nur alle 5 Minuten nach PIN-Updates ab!
-def read_csv_from_onedrive(token):
-    """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
+def read_excel_from_onedrive(token):
+    """Liest die kunden_pins.xlsx aus dem OneDrive-Ordner 'pg_finance_Dateneingabe'."""
     try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            # Liest die CSV-Datei ein
-            df = pd.read_csv(BytesIO(response.content))
+            df = pd.read_excel(BytesIO(response.content))
             datenbank = {}
             for _, row in df.iterrows():
-                pin = str(row["PIN"]).strip()
-                datenbank[pin] = {
+                # Formatiert PINs sauber als Text (damit auch '0000' oder '1234' klappen)
+                raw_pin = str(row["PIN"]).strip()
+                if raw_pin.endswith(".0"): # Entfernt Kommastellen von Excel
+                    raw_pin = raw_pin[:-2]
+                
+                # Füllt führende Nullen bei 4-stelligen PINs auf (z.B. aus '0' wird '0000')
+                if len(raw_pin) < 4 and raw_pin.isdigit():
+                    raw_pin = raw_pin.zfill(4)
+                    
+                datenbank[raw_pin] = {
                     "nachname": str(row["Nachname"]).strip(),
                     "vorname": str(row["Vorname"]).strip(),
                     "status": str(row.get("Status", "Bereit")).strip()
                 }
             return datenbank
         elif response.status_code == 404:
-            # Falls die CSV fehlt, erstellen wir sie automatisch!
-            create_initial_excel_on_onedrive(token) # Lokales Fallback aufrufen
+            # Falls die Excel fehlt, erstellen wir sie automatisch!
+            create_initial_excel_on_onedrive(token)
+            return read_excel_from_onedrive(token)
     except Exception:
         pass
     return {}
@@ -104,7 +117,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
         neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}_{zaehler}{endung}"
         zaehler += 1
         
-    # 3. Datei mit dem endgültigen, sicheren Namen hochladen
+    # 3. Datei hochladen
     url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{neuer_dateiname}:/content"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -112,31 +125,34 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     }
     requests.put(url, headers=headers, data=file_content)
 
-def update_csv_status_on_onedrive(token, pin_to_update):
-    """Markiert den Kunden in der kunden_pins.csv als 'Ausgefüllt'."""
+def update_excel_status_on_onedrive(token, pin_to_update):
+    """Markiert den Kunden in der kunden_pins.xlsx als 'Ausgefüllt'."""
     try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content))
-            df.loc[df["PIN"].astype(str) == str(pin_to_update), "Status"] = "Ausgefüllt"
+            df = pd.read_excel(BytesIO(response.content))
             
-            # CSV im Speicher neu schreiben
-            csv_buffer = BytesIO()
-            df.to_csv(csv_buffer, index=False)
-            requests.put(url, headers=headers, data=csv_buffer.getvalue())
+            # PINs als Strings vergleichen
+            df["PIN_Str"] = df["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
+            df.loc[df["PIN_Str"] == str(pin_to_update).replace(".0", ""), "Status"] = "Ausgefüllt"
+            df.drop(columns=["PIN_Str"], inplace=True)
             
-            # Cache leeren, damit die Änderung sofort aktiv wird
-            st.cache_data.clear()
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False)
+            output.seek(0)
+            
+            requests.put(url, headers=headers, data=output.getvalue())
     except Exception:
         pass
 
 # Token und Datenbank generieren
 token = get_onedrive_token()
-KUNDEN_DATENBANK = read_csv_from_onedrive(token) if token else {}
+KUNDEN_DATENBANK = read_excel_from_onedrive(token) if token else {}
 
-# Sicheres Fallback, falls die Verbindung mal komplett abreißt
+# Lokales Backup (NUR aktiv, falls absolut keine Verbindung aufgebaut werden kann)
 if not KUNDEN_DATENBANK:
     KUNDEN_DATENBANK = {
         "0000": {"nachname": "Seyschab", "vorname": "Simon", "status": "Bereit"},
@@ -414,8 +430,8 @@ Garage: {garage}
             # === ONEDRIVE HOCHLADEN-PROZESS ===
             if token:
                 with st.spinner("Daten werden sicher übertragen..."):
-                    # 1. ERSTELLT DIE CSV-DATEI AUTOMATISCH, FALLS SIE NOCH FEHLT!
-                    create_initial_csv_on_onedrive(token)
+                    # 1. ERSTELLT DIE EXCEL-DATEI BEIM ALLERERSTEN ABSENDEN IM HINTERGRUND!
+                    create_initial_excel_on_onedrive(token)
                     
                     # 2. Lädt die Kundendaten hoch (Mit automatischem Überschreibschutz!)
                     upload_file_to_onedrive(token, vollstaendiger_upload_pfad, "Kopier_Vorlage.txt", infotext.encode("utf-8"))
@@ -433,8 +449,8 @@ Garage: {garage}
                     if ausweis_rueckseite:
                         upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Rueckseite_{ausweis_rueckseite.name}", ausweis_rueckseite.getbuffer())
                     
-                    # 3. Status in OneDrive CSV markieren
-                    update_csv_status_on_onedrive(token, pin_eingabe)
+                    # 3. Status in OneDrive Excel markieren
+                    update_excel_status_on_onedrive(token, pin_eingabe)
                     
                 st.balloons()
                 st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
