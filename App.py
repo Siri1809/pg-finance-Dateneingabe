@@ -20,7 +20,6 @@ CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
 # === 🔑 HIER VERWALTEN SIE DIE MAKLER-PINS (Direkt im Code) ===
-# Diese PINs werden niemals gesperrt und schalten den Kopier-Manager frei!
 PIN_SIMON = "Siri0921"   # Ihre PIN (Simon)
 PIN_CHEF = "legen_daer"    # Die PIN Ihres Chefs (Patrick)
 
@@ -50,14 +49,14 @@ def create_initial_csv_on_onedrive(token):
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            # Erstellt die CSV mit den neuen Spalten für das intelligente Lernen
+            # Erstellt die CSV mit allen Spalten, um KeyErrors von Anfang an zu verhindern!
             csv_content = "PIN,Vorname,Nachname,Geburtsort,Familienstand,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Weitere_Fahrer\n"
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
             requests.put(upload_url, headers=headers, data=csv_content.encode("utf-8"))
     except Exception:
         pass
 
-@st.cache_data(ttl=60) # Fragt OneDrive alle 60 Sekunden nach neuen Einträgen ab (Ressourcenschutz!)
+@st.cache_data(ttl=60) # Fragt OneDrive alle 60 Sekunden nach neuen Einträgen ab
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -118,10 +117,15 @@ def save_database_to_onedrive(token, df):
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
+# KORREKTE ERGÄNZUNG: Zwingt den DataFrame, alle Spalten zu besitzen, um KeyErrors auszuschließen!
+erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Geburtsort", "Familienstand", "Kennzeichen", "Fahrleistung", "Kilometerstand", "Garage", "Weitere_Fahrer"]
+for col in erforderliche_spalten:
+    if col not in df_db.columns:
+        df_db[col] = ""
+
 # Bereinigung der PINs im DataFrame, falls die Tabelle gelesen werden konnte
-if not df_db.empty:
-    df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
-    df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
+df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
+df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
 
 # CSS (Unverändert!)
 st.markdown("""
@@ -282,18 +286,27 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Prüfen, ob die PIN gültig ist (Entweder Master-PIN oder in der Excel-Tabelle)
-is_master_pin = str(pin_eingabe).strip() in [PIN_SIMON, PIN_CHEF]
-is_valid_customer = False
-k_info = None
-
+# KUNDEN_DATENBANK im Speicher füllen (Zieht sich die PINs aus dem DataFrame)
+KUNDEN_DATENBANK = {}
 if not df_db.empty:
-    kunden_zeilen = df_db[df_db["PIN"] == str(pin_eingabe).strip()]
-    if not kunden_zeilen.empty:
-        is_valid_customer = True
-        k_info = kunden_zeilen.iloc[0]
+    for _, r in df_db.iterrows():
+        p_val = str(r["PIN"]).strip()
+        KUNDEN_DATENBANK[p_val] = {
+            "nachname": str(r["Nachname"]).strip(),
+            "vorname": str(r["Vorname"]).strip()
+        }
 
-# LOGIN-FREIGABE
+# Falls die Excel leer ist, erzwingen wir die Master-PINs als Fallback im Speicher
+if PIN_SIMON not in KUNDEN_DATENBANK:
+    KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
+if PIN_CHEF not in KUNDEN_DATENBANK:
+    KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
+
+# Login-Kontrollen initialisieren
+is_master_pin = str(pin_eingabe).strip() in [PIN_SIMON, PIN_CHEF]
+is_valid_customer = str(pin_eingabe).strip() in KUNDEN_DATENBANK
+weitere_fahrer_vorhanden = False # KORREKTE INITIALISIERUNG gegen NameErrors!
+
 if is_master_pin or is_valid_customer:
     
     # =========================================================================
@@ -304,59 +317,63 @@ if is_master_pin or is_valid_customer:
         st.markdown("<h2 style='color:#0b4aa0;'>📋 Kundendaten-Manager</h2>", unsafe_allow_html=True)
         st.write("Wählen Sie einen Kunden aus, um alle eingetragenen Daten komfortabel zu kopieren.")
         
-        if not df_db.empty:
-            # Filtert alle echten Kunden aus der Tabelle heraus
-            kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
+        # Filtert alle echten Kunden aus der Tabelle heraus
+        kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
+        
+        # Spalten-Fallback gegen KeyErrors
+        for col in ["Nachname", "Vorname", "Kennzeichen"]:
+            if col not in kunden_df.columns:
+                kunden_df[col] = "Nicht angegeben"
+        
+        if not kunden_df.empty:
+            kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
+            ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
             
-            if not kunden_df.empty:
-                kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
-                ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
+            if ausgewaehlter_kunden_name:
+                nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
+                vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
+                kunden_daten = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)]
                 
-                if ausgewaehlter_kunden_name:
-                    nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
-                    vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
-                    kunden_daten = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)]
-                    
-                    if len(kunden_daten) > 1:
-                        auto_auswahl = st.selectbox("Fahrzeug wählen:", kunden_daten["Kennzeichen"].unique())
-                        k_row = kunden_daten[kunden_daten["Kennzeichen"] == auto_auswahl].iloc[0]
-                    else:
-                        k_row = kunden_daten.iloc[0]
-                    
-                    st.write("")
-                    st.markdown(f"### Stammdaten von {k_row['Vorname']} {k_row['Nachname']}")
-                    
-                    st.markdown("<span class='makler-label'>Nachname</span>", unsafe_allow_html=True)
-                    st.code(str(k_row["Nachname"]), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Vorname</span>", unsafe_allow_html=True)
-                    st.code(str(k_row["Vorname"]), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Geburtsort</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Geburtsort", "Nicht angegeben")), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Familienstand</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Familienstand", "Nicht angegeben")), language="text")
-                    
-                    st.write("")
-                    st.markdown("### Fahrzeugdaten")
-                    
-                    st.markdown("<span class='makler-label'>Amtliches Kennzeichen</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Kennzeichen", "Nicht angegeben")), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Jährliche Fahrleistung</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Fahrleistung", "Nicht angegeben")), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Aktueller Kilometerstand</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Kilometerstand", "Nicht angegeben")), language="text")
-                    
-                    st.markdown("<span class='makler-label'>Abstellort (Garage)</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Garage", "Nicht angegeben")), language="text")
-                    
-                    st.write("")
-                    st.markdown("### Weitere Fahrer")
-                    st.markdown("<span class='makler-label'>Verzeichnete Fahrerdaten</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Weitere_Fahrer", "Keine weiteren Fahrer verzeichnet")), language="text")
+                if len(kunden_daten) > 1:
+                    auto_auswahl = st.selectbox("Fahrzeug wählen:", kunden_daten["Kennzeichen"].unique())
+                    k_row = kunden_daten[kunden_daten["Kennzeichen"] == auto_auswahl].iloc[0]
+                else:
+                    k_row = kunden_daten.iloc[0]
+                
+                st.write("")
+                st.markdown(f"### Stammdaten von {k_row['Vorname']} {k_row['Nachname']}")
+                
+                st.markdown("<span class='makler-label'>Nachname</span>", unsafe_allow_html=True)
+                st.code(str(k_row["Nachname"]), language="text")
+                
+                st.markdown("<span class='makler-label'>Vorname</span>", unsafe_allow_html=True)
+                st.code(str(k_row["Vorname"]), language="text")
+                
+                st.markdown("<span class='makler-label'>Geburtsort</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Geburtsort", "Nicht angegeben")), language="text")
+                
+                st.markdown("<span class='makler-label'>Familienstand</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Familienstand", "Nicht angegeben")), language="text")
+                
+                st.write("")
+                st.markdown("### Fahrzeugdaten")
+                
+                st.markdown("<span class='makler-label'>Amtliches Kennzeichen</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Kennzeichen", "Nicht angegeben")), language="text")
+                
+                st.markdown("<span class='makler-label'>Jährliche Fahrleistung</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Fahrleistung", "Nicht angegeben")), language="text")
+                
+                st.markdown("<span class='makler-label'>Aktueller Kilometerstand</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Kilometerstand", "Nicht angegeben")), language="text")
+                
+                st.markdown("<span class='makler-label'>Abstellort (Garage)</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Garage", "Nicht angegeben")), language="text")
+                
+                st.write("")
+                st.markdown("### Weitere Fahrer")
+                st.markdown("<span class='makler-label'>Verzeichnete Fahrerdaten</span>", unsafe_allow_html=True)
+                st.code(str(k_row.get("Weitere_Fahrer", "Keine weiteren Fahrer verzeichnet")), language="text")
             else:
                 st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
         else:
@@ -366,14 +383,15 @@ if is_master_pin or is_valid_customer:
     # 🚗 MODUS B: DIE INTELLIGENTE EINGABEMASKE FÜR IHRE KUNDEN
     # =========================================================================
     else:
-        kunden_nachname = k_info["Nachname"]
-        kunden_vorname = k_info["Vorname"]
+        k_info = KUNDEN_DATENBANK[pin_eingabe]
+        kunden_nachname = k_info["nachname"]
+        kunden_vorname = k_info["vorname"]
         
         # Intelligentes Voraussortieren aus OneDrive
         db_geburtsort = k_info.get("Geburtsort", "") if pd.notna(k_info.get("Geburtsort")) else ""
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
         db_garage = k_info.get("Garage", "Einzel-/Doppelgarage") if pd.notna(k_info.get("Garage")) else "Einzel-/Doppelgarage"
-        db_fahrleistung = int(k_info.get("Fahrleistung", 10000)) if pd.notna(k_info.get("Fahrleistung")) else 10000
+        db_fahrleistung = int(k_info.get("Fahrleistung", 10000)) if (pd.notna(k_info.get("Fahrleistung")) and str(k_info.get("Fahrleistung")).isdigit()) else 10000
 
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
 
@@ -430,37 +448,41 @@ if is_master_pin or is_valid_customer:
                 <span class="card-header">👥 Weitere Fahrer</span>
         """, unsafe_allow_html=True)
         
-        if "anzahl_fahrer" not in st.session_state:
-            st.session_state.anzahl_fahrer = 0
-            
+        weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=False)
         weitere_fahrer_liste = []
         
-        col_plus1, col_plus2 = st.columns([3, 1])
-        with col_plus1:
-            st.write("Hier können Sie beliebig viele zusätzliche Fahrer für dieses Auto verzeichnen:")
-        with col_plus2:
-            if st.button("➕ Hinzufügen"):
-                st.session_state.anzahl_fahrer += 1
+        if weitere_fahrer_vorhanden:
+            if "anzahl_fahrer" not in st.session_state:
+                st.session_state.anzahl_fahrer = 1
                 
-        for i in range(st.session_state.anzahl_fahrer):
-            st.markdown(f"#### 👤 Fahrer {i+1}")
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", key=f"wf_n_{i}")
-                wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", key=f"wf_v_{i}")
-            with col_d2:
-                wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1), key=f"wf_geb_{i}")
-                wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1), key=f"wf_fs_{i}")
-            
-            if wf_n and wf_v:
-                weitere_fahrer_liste.append(f"Fahrer {i+1}: {wf_n}, {wf_v} (Geb: {wf_geb.strftime('%d.%m.%Y')}, FS seit: {wf_fs.strftime('%d.%m.%Y')})")
-            st.markdown("---")
-            
-        if st.session_state.anzahl_fahrer > 0:
-            if st.button("❌ Alle zusätzlichen Fahrer zurücksetzen"):
-                st.session_state.anzahl_fahrer = 0
-                st.rerun()
+            col_plus1, col_plus2 = st.columns([3, 1])
+            with col_plus1:
+                st.write("Hier können Sie beliebig viele zusätzliche Fahrer für dieses Auto verzeichnen:")
+            with col_plus2:
+                if st.button("➕ Hinzufügen"):
+                    st.session_state.anzahl_fahrer += 1
+                    
+            for i in range(st.session_state.anzahl_fahrer):
+                st.markdown(f"#### 👤 Fahrer {i+1}")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", key=f"wf_n_{i}")
+                    wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", key=f"wf_v_{i}")
+                with col_d2:
+                    wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1), key=f"wf_geb_{i}")
+                    wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1), key=f"wf_fs_{i}")
                 
+                if wf_n and wf_v:
+                    weitere_fahrer_liste.append(f"Fahrer {i+1}: {wf_n}, {wf_v} (Geb: {wf_geb.strftime('%d.%m.%Y')}, FS seit: {wf_fs.strftime('%d.%m.%Y')})")
+                st.markdown("---")
+                
+            if st.session_state.anzahl_fahrer > 1:
+                if st.button("❌ Alle zusätzlichen Fahrer zurücksetzen"):
+                    st.session_state.anzahl_fahrer = 1
+                    st.rerun()
+        else:
+            st.session_state.anzahl_fahrer = 0
+            
         st.markdown('</div>', unsafe_allow_html=True)
 
         # === KARTE 4: DOKUMENTE ===
