@@ -19,12 +19,12 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-# === 🔑 MAKLER-PINS (Sicher im Code verankert) ===
+# === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
 PIN_CHEF = "legen_daer"
 
 # =========================================================================
-# 🛠️ ALLE HILFS-FUNKTIONEN (Müssen ganz oben stehen, damit Python sie kennt!)
+# 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
 
 def get_onedrive_token():
@@ -63,6 +63,7 @@ def create_initial_csv_on_onedrive(token):
     except Exception:
         pass
 
+@st.cache_data(ttl=5) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Sekunden
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -141,14 +142,14 @@ def save_database_to_onedrive(token, df):
         pass
 
 # =========================================================================
-# ⚙️ SYSTEM-ABFRAGEN UND START DER APPLIKATION
+# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
 # =========================================================================
 
-# Token und Datenbank (DataFrame) laden
+# Token und Datenbank laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle Spalten im Speicher zu besitzen
+# Zwingt den DataFrame, alle erforderlichen Spalten zu besitzen
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum", "Kennzeichen", "Fahrleistung", "Kilometerstand", "Garage", "Finanzierung"]
 for i in range(1, 6):
     erforderliche_spalten += [f"Fahrer_{i}_Nachname", f"Fahrer_{i}_Vorname", f"Fahrer_{i}_Geburtsdatum", f"Fahrer_{i}_Erwerbsdatum"]
@@ -196,6 +197,9 @@ if PIN_SIMON not in KUNDEN_DATENBANK:
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
+# =========================================================================
+# 🏠 STREAMLIT OBERFLÄCHE (VISUELL)
+# =========================================================================
 
 # CSS (Unverändert!)
 st.markdown("""
@@ -338,13 +342,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
-
-# =========================================================================
-# 🏠 STREAMLIT OBERFLÄCHE (VISUELL)
-# =========================================================================
-
-# Logo & Überschrift laden (Immer sichtbar)
 LOGO_DATEINAME = "pg-finance_Logo.jpg"
 if os.path.exists(LOGO_DATEINAME):
     logo = Image.open(LOGO_DATEINAME)
@@ -363,7 +360,7 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Bereinigung der Benutzereingabe
+# KORREKTUR: Die Bereinigung erfolgt jetzt GARANTIERT erst nach der Erstellung der Variable 'pin_eingabe'!
 tipp_pin = str(pin_eingabe).strip()
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
@@ -412,7 +409,7 @@ if is_master_pin or is_valid_customer:
                         
                         st.write("---")
                         st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://kfz-tarif-helfer.streamlit.app\n\n🔑 Deine persönliche PIN lautet: {safe_new_pin}"
+                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://kfz-tarif-helfer.streamlit.app\n\n🔑 Deine persönliche PIN lautet: *{safe_new_pin}*"
                         st.code(wa_text, language="text")
                     else:
                         st.error("Bitte alle Felder ausfüllen!")
