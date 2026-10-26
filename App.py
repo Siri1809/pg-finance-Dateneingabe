@@ -19,6 +19,11 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
+# === 🔑 HIER VERWALTEN SIE DIE MAKLER-PINS (Direkt im Code) ===
+# Diese PINs werden niemals gesperrt und schalten den Kopier-Manager frei!
+PIN_SIMON = "Siri0921"   # Ihre PIN (Simon)
+PIN_CHEF = "legen_daer"    # Die PIN Ihres Chefs (Patrick)
+
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
     try:
@@ -45,14 +50,14 @@ def create_initial_csv_on_onedrive(token):
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            # KORREKTUR: Keine Status-Spalte mehr! Nur noch PIN, Vorname, Nachname
-            csv_content = "PIN,Vorname,Nachname\n1234,Patrick,Grellner\n0000,Simon,Seyschab\n"
+            # Erstellt die CSV mit den neuen Spalten für das intelligente Lernen
+            csv_content = "PIN,Vorname,Nachname,Geburtsort,Familienstand,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Weitere_Fahrer\n"
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
             requests.put(upload_url, headers=headers, data=csv_content.encode("utf-8"))
     except Exception:
         pass
 
-@st.cache_data(ttl=300) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Minuten
+@st.cache_data(ttl=60) # Fragt OneDrive alle 60 Sekunden nach neuen Einträgen ab (Ressourcenschutz!)
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -62,25 +67,12 @@ def read_csv_from_onedrive(token):
         
         if response.status_code == 200:
             df = pd.read_csv(BytesIO(response.content))
-            datenbank = {}
-            for _, row in df.iterrows():
-                raw_pin = str(row["PIN"]).strip()
-                if raw_pin.endswith(".0"): 
-                    raw_pin = raw_pin[:-2]
-                
-                if len(raw_pin) < 4 and raw_pin.isdigit():
-                    raw_pin = raw_pin.zfill(4)
-                    
-                datenbank[raw_pin] = {
-                    "nachname": str(row["Nachname"]).strip(),
-                    "vorname": str(row["Vorname"]).strip()
-                }
-            return datenbank
+            return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
     except Exception:
         pass
-    return {}
+    return pd.DataFrame()
 
 def check_file_exists_on_onedrive(token, path_structure, file_name):
     """Prüft, ob eine Datei bereits auf OneDrive existiert."""
@@ -93,7 +85,6 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     """Lädt eine Datei auf OneDrive hoch. Verhindert Überschreiben durch automatischen Zähler."""
     aktuelle_jahreszahl = datetime.now().strftime("%Y")
     name_teil, endung = os.path.splitext(file_name)
-    
     neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
     
     zaehler = 1
@@ -108,16 +99,29 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     }
     requests.put(url, headers=headers, data=file_content)
 
-# Token und Datenbank generieren
-token = get_onedrive_token()
-KUNDEN_DATENBANK = read_csv_from_onedrive(token) if token else {}
+def save_database_to_onedrive(token, df):
+    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive."""
+    try:
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream"
+        }
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        requests.put(url, headers=headers, data=csv_buffer.getvalue())
+        st.cache_data.clear() # Leert den Cache sofort
+    except Exception:
+        pass
 
-# Sicheres Fallback für die Wunsch-PINs, falls OneDrive offline ist
-if not KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK = {
-        "0000": {"nachname": "Seyschab", "vorname": "Simon"},
-        "1234": {"nachname": "Grellner", "vorname": "Patrick"}
-    }
+# Token und Datenbank (DataFrame) laden
+token = get_onedrive_token()
+df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
+
+# Bereinigung der PINs im DataFrame, falls die Tabelle gelesen werden konnte
+if not df_db.empty:
+    df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
+    df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
 
 # CSS (Unverändert!)
 st.markdown("""
@@ -251,6 +255,12 @@ st.markdown("""
         box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
         margin-bottom: 20px !important;
     }
+    .makler-label {
+        font-weight: bold;
+        color: #718096;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -272,142 +282,243 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# PRÜFEN, OB DIE PIN IN DER DATENBANK EXISTIERT
-if pin_eingabe in KUNDEN_DATENBANK:
-    kunden_info = KUNDEN_DATENBANK[pin_eingabe]
-    kunden_nachname = kunden_info["nachname"]
-    kunden_vorname = kunden_info["vorname"]
+# Prüfen, ob die PIN gültig ist (Entweder Master-PIN oder in der Excel-Tabelle)
+is_master_pin = str(pin_eingabe).strip() in [PIN_SIMON, PIN_CHEF]
+is_valid_customer = False
+k_info = None
 
-    st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
+if not df_db.empty:
+    kunden_zeilen = df_db[df_db["PIN"] == str(pin_eingabe).strip()]
+    if not kunden_zeilen.empty:
+        is_valid_customer = True
+        k_info = kunden_zeilen.iloc[0]
 
-    # === KARTE 1: PERSÖNLICHE DATEN ===
-    st.markdown("""
-        <div class="form-card">
-            <span class="card-header">👤 Persönliche Daten</span>
-    """, unsafe_allow_html=True)
+# LOGIN-FREIGABE
+if is_master_pin or is_valid_customer:
     
-    col1, col2 = st.columns(2)
-    with col1:
-        name = st.text_input("Nachname *", value=kunden_nachname, disabled=True)
-        vorname = st.text_input("Vorname *", value=kunden_vorname, disabled=True)
-    with col2:
-        geburtsort = st.text_input("Geburtsort *")
-        familienstand = st.selectbox("Familienstand", ["Ledig", "Verheiratet", "Eingetragene Lebenspartnerschaft", "Geschieden", "Verwitwet"])
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # === KARTE 2: FAHRZEUG ===
-    st.markdown("""
-        <div class="form-card">
-            <span class="card-header">🚘 Fahrzeug & Nutzung</span>
-    """, unsafe_allow_html=True)
-    
-    col_fz1, col_col2 = st.columns(2)
-    with col_fz1:
-        fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=10000, step=1000)
-        km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
-    with col_col2:
-        garage = st.selectbox("Abstellort des Fahrzeugs (Garage) *", ["Einzel-/Doppelgarage", "Tiefgarage", "Carport", "Privatgrundstück (befriedet)", "Straße / Laternenparker"])
-    
-    st.write("") 
-    col_kz1, col_kz2 = st.columns([2, 1])
-    with col_kz2:
-        neufahrzeug = st.checkbox("Neufahrzeug", help="Aktivieren Sie dies, falls das Fahrzeug noch nicht zugelassen ist.")
-    with col_kz1:
-        if neufahrzeug:
-            kennzeichen = st.text_input("Amtliches Kennzeichen", value="NEUFAHRZEUG", disabled=True)
+    # =========================================================================
+    # 📋 MODUS A: MAKLER-MODUS (NUR FÜR SIMON & PATRICK!)
+    # =========================================================================
+    if is_master_pin:
+        st.success(f"🔓 Willkommen im Makler-Verwaltungs-Modus!")
+        st.markdown("<h2 style='color:#0b4aa0;'>📋 Kundendaten-Manager</h2>", unsafe_allow_html=True)
+        st.write("Wählen Sie einen Kunden aus, um alle eingetragenen Daten komfortabel zu kopieren.")
+        
+        if not df_db.empty:
+            # Filtert alle echten Kunden aus der Tabelle heraus
+            kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
+            
+            if not kunden_df.empty:
+                kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
+                ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
+                
+                if ausgewaehlter_kunden_name:
+                    nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
+                    vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
+                    kunden_daten = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)]
+                    
+                    if len(kunden_daten) > 1:
+                        auto_auswahl = st.selectbox("Fahrzeug wählen:", kunden_daten["Kennzeichen"].unique())
+                        k_row = kunden_daten[kunden_daten["Kennzeichen"] == auto_auswahl].iloc[0]
+                    else:
+                        k_row = kunden_daten.iloc[0]
+                    
+                    st.write("")
+                    st.markdown(f"### Stammdaten von {k_row['Vorname']} {k_row['Nachname']}")
+                    
+                    st.markdown("<span class='makler-label'>Nachname</span>", unsafe_allow_html=True)
+                    st.code(str(k_row["Nachname"]), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Vorname</span>", unsafe_allow_html=True)
+                    st.code(str(k_row["Vorname"]), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Geburtsort</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Geburtsort", "Nicht angegeben")), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Familienstand</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Familienstand", "Nicht angegeben")), language="text")
+                    
+                    st.write("")
+                    st.markdown("### Fahrzeugdaten")
+                    
+                    st.markdown("<span class='makler-label'>Amtliches Kennzeichen</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Kennzeichen", "Nicht angegeben")), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Jährliche Fahrleistung</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Fahrleistung", "Nicht angegeben")), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Aktueller Kilometerstand</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Kilometerstand", "Nicht angegeben")), language="text")
+                    
+                    st.markdown("<span class='makler-label'>Abstellort (Garage)</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Garage", "Nicht angegeben")), language="text")
+                    
+                    st.write("")
+                    st.markdown("### Weitere Fahrer")
+                    st.markdown("<span class='makler-label'>Verzeichnete Fahrerdaten</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Weitere_Fahrer", "Keine weiteren Fahrer verzeichnet")), language="text")
+            else:
+                st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
         else:
-            kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
+            st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
 
-    st.write("")
-    fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
-    st.markdown('</div>', unsafe_allow_html=True)
+    # =========================================================================
+    # 🚗 MODUS B: DIE INTELLIGENTE EINGABEMASKE FÜR IHRE KUNDEN
+    # =========================================================================
+    else:
+        kunden_nachname = k_info["Nachname"]
+        kunden_vorname = k_info["Vorname"]
+        
+        # Intelligentes Voraussortieren aus OneDrive
+        db_geburtsort = k_info.get("Geburtsort", "") if pd.notna(k_info.get("Geburtsort")) else ""
+        db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
+        db_garage = k_info.get("Garage", "Einzel-/Doppelgarage") if pd.notna(k_info.get("Garage")) else "Einzel-/Doppelgarage"
+        db_fahrleistung = int(k_info.get("Fahrleistung", 10000)) if pd.notna(k_info.get("Fahrleistung")) else 10000
 
-    # === KARTE 3: WEITERE FAHRER ===
-    st.markdown("""
-        <div class="form-card">
-            <span class="card-header">👥 Weitere Fahrer</span>
-    """, unsafe_allow_html=True)
-    
-    weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=False)
-    
-    if weitere_fahrer_vorhanden:
+        st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
+
+        # === KARTE 1: PERSÖNLICHE DATEN ===
+        st.markdown("""
+            <div class="form-card">
+                <span class="card-header">👤 Persönliche Daten</span>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("Nachname *", value=kunden_nachname, disabled=True)
+            vorname = st.text_input("Vorname *", value=kunden_vorname, disabled=True)
+        with col2:
+            geburtsort = st.text_input("Geburtsort *", value=db_geburtsort)
+            
+            liste_familienstand = ["Ledig", "Verheiratet", "Eingetragene Lebenspartnerschaft", "Geschieden", "Verwitwet"]
+            default_fam_index = liste_familienstand.index(db_familienstand) if db_familienstand in liste_familienstand else 0
+            familienstand = st.selectbox("Familienstand", liste_familienstand, index=default_fam_index)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # === KARTE 2: FAHRZEUG ===
+        st.markdown("""
+            <div class="form-card">
+                <span class="card-header">🚘 Fahrzeug & Nutzung</span>
+        """, unsafe_allow_html=True)
+        
+        col_fz1, col_col2 = st.columns(2)
+        with col_fz1:
+            fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=db_fahrleistung, step=1000)
+            km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
+        with col_col2:
+            liste_garage = ["Einzel-/Doppelgarage", "Tiefgarage", "Carport", "Privatgrundstück (befriedet)", "Straße / Laternenparker"]
+            default_gar_index = liste_garage.index(db_garage) if db_garage in liste_garage else 0
+            garage = st.selectbox("Abstellort des Fahrzeugs (Garage) *", liste_garage, index=default_gar_index)
+        
         st.write("") 
-        col_wf1, col_wf2 = st.columns(2)
-        with col_wf1:
-            wf_nachname = st.text_input("Nachname des weiteren Fahrers *")
-            wf_vorname = st.text_input("Vorname des weiteren Fahrers *")
-        with col_wf2:
-            wf_geburtsdatum = st.date_input("Geburtsdatum des weiteren Fahrers *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1))
-            wf_fs_datum = st.date_input("Führerschein-Erwerbsdatum *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1))
-    else:
-        wf_nachname, wf_vorname, wf_geburtsdatum, wf_fs_datum = "", "", "", ""
+        col_kz1, col_kz2 = st.columns([2, 1])
+        with col_kz2:
+            neufahrzeug = st.checkbox("Neufahrzeug", help="Aktivieren Sie dies, falls das Fahrzeug noch nicht zugelassen ist.")
+        with col_kz1:
+            if neufahrzeug:
+                kennzeichen = st.text_input("Amtliches Kennzeichen", value="NEUFAHRZEUG", disabled=True)
+            else:
+                kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
+
+        st.write("")
+        fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # === KARTE 3: WEITERE FAHRER ===
+        st.markdown("""
+            <div class="form-card">
+                <span class="card-header">👥 Weitere Fahrer</span>
+        """, unsafe_allow_html=True)
         
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # === KARTE 4: DOKUMENTE ===
-    st.markdown("""
-        <div class="form-card">
-            <span class="card-header">📂 Dokumente hochladen</span>
-    """, unsafe_allow_html=True)
-    st.info("💡 Dokumente oder Fotos können Sie ganz einfach direkt mit Ihrer Smartphone-Kamera aufnehmen.")
-    
-    st.write("") 
-    police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
-    
-    # Führerscheine (OPTIONAL)
-    st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-bottom: 2px;'>Führerschein aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
-    col_fs1, col_fs2 = st.columns(2)
-    with col_fs1:
-        fs_vorderseite = st.file_uploader("Vorderseite", type=["pdf", "png", "jpg", "jpeg"], key="fs_vorn")
-    with col_fs2:
-        fs_rueckseite = st.file_uploader("Rückseite", type=["pdf", "png", "jpg", "jpeg"], key="fs_hinten")
-        
-    # Ausweise (OPTIONAL)
-    st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-top: 15px; margin-bottom: 2px;'>Ausweisdokument aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
-    col_id1, col_id2 = st.columns(2)
-    with col_id1:
-        ausweis_vorderseite = st.file_uploader("Vorderseite / Reisepass-Hauptseite", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_vorn")
-    with col_id2:
-        ausweis_rueckseite = st.file_uploader("Rückseite", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_hinten")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # === DATENSCHUTZ-EINWILLIGUNG ===
-    st.markdown('<div class="form-card"><span class="card-header">⚖️ Datenschutz & Einwilligung</span>', unsafe_allow_html=True)
-    datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Pflichtfelder-Validierung
-    pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
-    if weitere_fahrer_vorhanden:
-        pflicht_wf = wf_nachname != "" and wf_vorname != "" and wf_geburtsdatum and wf_fs_datum
-    else:
-        pflicht_wf = True
-        
-    pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
-                                 and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
-
-    if pflichtfelder_ausgefuellt:
-        if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
+        if "anzahl_fahrer" not in st.session_state:
+            st.session_state.anzahl_fahrer = 0
             
-            # Ordnerstruktur (Nachname_Vorname / Kennzeichen)
-            safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
-            kunden_ordner_name = f"{name}_{vorname}"
-            vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
+        weitere_fahrer_liste = []
+        
+        col_plus1, col_plus2 = st.columns([3, 1])
+        with col_plus1:
+            st.write("Hier können Sie beliebig viele zusätzliche Fahrer für dieses Auto verzeichnen:")
+        with col_plus2:
+            if st.button("➕ Hinzufügen"):
+                st.session_state.anzahl_fahrer += 1
+                
+        for i in range(st.session_state.anzahl_fahrer):
+            st.markdown(f"#### 👤 Fahrer {i+1}")
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", key=f"wf_n_{i}")
+                wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", key=f"wf_v_{i}")
+            with col_d2:
+                wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1), key=f"wf_geb_{i}")
+                wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1), key=f"wf_fs_{i}")
             
-            # Lokales Backup erstellen
-            local_backup_path = os.path.join(kunden_ordner_name, safe_kz)
-            if not os.path.exists(local_backup_path):
-                os.makedirs(local_backup_path)
+            if wf_n and wf_v:
+                weitere_fahrer_liste.append(f"Fahrer {i+1}: {wf_n}, {wf_v} (Geb: {wf_geb.strftime('%d.%m.%Y')}, FS seit: {wf_fs.strftime('%d.%m.%Y')})")
+            st.markdown("---")
+            
+        if st.session_state.anzahl_fahrer > 0:
+            if st.button("❌ Alle zusätzlichen Fahrer zurücksetzen"):
+                st.session_state.anzahl_fahrer = 0
+                st.rerun()
+                
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            wf_text_block = "Nein"
-            if weitere_fahrer_vorhanden:
-                wf_text_block = f"""Ja
-  -> Name: {wf_nachname}
-  -> Vorname: {wf_vorname}
-  -> Geburtsdatum: {wf_geburtsdatum.strftime('%d.%m.%Y')}
-  -> Führerschein seit: {wf_fs_datum.strftime('%d.%m.%Y')}"""
+        # === KARTE 4: DOKUMENTE ===
+        st.markdown("""
+            <div class="form-card">
+                <span class="card-header">📂 Dokumente hochladen</span>
+        """, unsafe_allow_html=True)
+        st.info("💡 Dokumente oder Fotos können Sie ganz einfach direkt mit Ihrer Smartphone-Kamera aufnehmen.")
+        
+        st.write("") 
+        police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
+        
+        col_fs1, col_fs2 = st.columns(2)
+        with col_fs1:
+            fs_vorderseite = st.file_uploader("Führerschein Vorderseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="fs_vorn")
+        with col_fs2:
+            fs_rueckseite = st.file_uploader("Führerschein Rückseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="fs_hinten")
+            
+        col_id1, col_id2 = st.columns(2)
+        with col_id1:
+            ausweis_vorderseite = st.file_uploader("Ausweis Vorderseite / Reisepass (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_vorn")
+        with col_id2:
+            ausweis_rueckseite = st.file_uploader("Ausweis Rückseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_hinten")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            infotext = f"""=== KUNDENDATEN FÜR NAFI / COMPARIT ===
+        # === DATENSCHUTZ-EINWILLIGUNG ===
+        st.markdown('<div class="form-card"><span class="card-header">⚖️ Datenschutz & Einwilligung</span>', unsafe_allow_html=True)
+        datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Pflichtfelder-Validierung
+        pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
+        if weitere_fahrer_vorhanden:
+            pflicht_wf = len(weitere_fahrer_liste) == st.session_state.anzahl_fahrer
+        else:
+            pflicht_wf = True
+            
+        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
+                                     and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
+
+        if pflichtfelder_ausgefuellt:
+            if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
+                
+                # Ordnerstruktur (Nachname_Vorname / Kennzeichen)
+                safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
+                kunden_ordner_name = f"{name}_{vorname}"
+                vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
+                
+                # Lokales Backup erstellen
+                local_backup_path = os.path.join(kunden_ordner_name, safe_kz)
+                if not os.path.exists(local_backup_path):
+                    os.makedirs(local_backup_path)
+
+                wf_text_block = "Nein"
+                if weitere_fahrer_liste:
+                    wf_text_block = " | ".join(weitere_fahrer_liste)
+
+                infotext = f"""=== KUNDENDATEN FÜR NAFI / COMPARIT ===
 Name: {name}
 Vorname: {vorname}
 Geburtsort: {geburtsort}
@@ -418,50 +529,71 @@ Fahrleistung: {fahrleistung} km/Jahr
 Aktueller KM-Stand: {km_stand} km
 Garage: {garage}
 ----------------------------------------
-Weiterer Fahrer: {wf_text_block}
+Weitere Fahrer: {wf_text_block}
 ========================================"""
 
-            with open(os.path.join(local_backup_path, "Kopier_Vorlage.txt"), "w", encoding="utf-8") as f:
-                f.write(infotext)
+                with open(os.path.join(local_backup_path, "Kopier_Vorlage.txt"), "w", encoding="utf-8") as f:
+                    f.write(infotext)
 
-            # === ONEDRIVE HOCHLADEN-PROZESS ===
-            if token:
-                with st.spinner("Daten werden sicher übertragen..."):
-                    # 1. ERSTELLT DIE CSV-DATEI AUTOMATISCH IM HINTERGRUND
-                    create_initial_csv_on_onedrive(token)
-                    
-                    # 2. Lädt die Kundendaten hoch (Mit automatischem Überschreibschutz!)
-                    upload_file_to_onedrive(token, vollstaendiger_upload_pfad, "Kopier_Vorlage.txt", infotext.encode("utf-8"))
-                    
-                    if fahrzeugschein:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Fahrzeugschein_{fahrzeugschein.name}", fahrzeugschein.getbuffer())
-                    if police:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Police_{police.name}", police.getbuffer())
-                    if fs_vorderseite:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"FS_Vorderseite_{fs_vorderseite.name}", fs_vorderseite.getbuffer())
-                    if fs_rueckseite:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"FS_Rueckseite_{fs_rueckseite.name}", fs_rueckseite.getbuffer())
-                    if ausweis_vorderseite:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Vorderseite_{ausweis_vorderseite.name}", ausweis_vorderseite.getbuffer())
-                    if ausweis_rueckseite:
-                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Rueckseite_{ausweis_rueckseite.name}", ausweis_rueckseite.getbuffer())
-                    
-                    # KORREKTE ANPASSUNG: Status wird in der CSV NICHT mehr auf Ausgefüllt gesetzt!
-                    # Jede PIN bleibt dauerhaft aktiv.
-                    
-                st.balloons()
-                st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
-            else:
-                st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
+                # === ONEDRIVE HOCHLADEN-PROZESS ===
+                if token:
+                    with st.spinner("Daten werden sicher übertragen..."):
+                        create_initial_csv_on_onedrive(token)
+                        
+                        upload_file_to_onedrive(token, vollstaendiger_upload_pfad, "Kopier_Vorlage.txt", infotext.encode("utf-8"))
+                        
+                        if fahrzeugschein:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Fahrzeugschein_{fahrzeugschein.name}", fahrzeugschein.getbuffer())
+                        if police:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Police_{police.name}", police.getbuffer())
+                        if fs_vorderseite:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"FS_Vorderseite_{fs_vorderseite.name}", fs_vorderseite.getbuffer())
+                        if fs_rueckseite:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"FS_Rueckseite_{fs_rueckseite.name}", fs_rueckseite.getbuffer())
+                        if ausweis_vorderseite:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Vorderseite_{ausweis_vorderseite.name}", ausweis_vorderseite.getbuffer())
+                        if ausweis_rueckseite:
+                            upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Rueckseite_{ausweis_rueckseite.name}", ausweis_rueckseite.getbuffer())
+                        
+                        # === LERNENDER DATENBANK-PROZESS ===
+                        if not df_db.empty:
+                            match_auto = df_db[(df_db["PIN"] == str(pin_eingabe)) & (df_db["Kennzeichen"] == str(kennzeichen))]
+                            
+                            neue_zeile = {
+                                "PIN": str(pin_eingabe),
+                                "Vorname": str(vorname),
+                                "Nachname": str(name),
+                                "Geburtsort": str(geburtsort),
+                                "Familienstand": str(familienstand),
+                                "Kennzeichen": str(kennzeichen),
+                                "Fahrleistung": int(fahrleistung),
+                                "Kilometerstand": int(km_stand),
+                                "Garage": str(garage),
+                                "Weitere_Fahrer": str(wf_text_block)
+                            }
+                            
+                            if not match_auto.empty:
+                                idx = match_auto.index[0]
+                                for col, val in neue_zeile.items():
+                                    df_db.at[idx, col] = val
+                            else:
+                                df_db = pd.concat([df_db, pd.DataFrame([neue_zeile])], ignore_index=True)
+                                
+                            save_database_to_onedrive(token, df_db)
+                        
+                    st.balloons()
+                    st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
+                else:
+                    st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
 
-    else:
-        st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
+        else:
+            st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
 
-    # 6. STIMMUNGSBILD GANZ UNTEN
-    THEME_BILD = "pg-finance-theme.jpg"
-    if os.path.exists(THEME_BILD):
-        theme_img = Image.open(THEME_BILD)
-        st.image(theme_img, use_container_width=True)
+        # 6. STIMMUNGSBILD GANZ UNTEN
+        THEME_BILD = "pg-finance-theme.jpg"
+        if os.path.exists(THEME_BILD):
+            theme_img = Image.open(THEME_BILD)
+            st.image(theme_img, use_container_width=True)
 
 else:
     if pin_eingabe != "":
