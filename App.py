@@ -19,7 +19,6 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-@st.cache_data(ttl=600) # RESSOURCEN-SCHUTZ: Cachet die Token-Abfrage für 10 Minuten
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
     try:
@@ -81,6 +80,9 @@ def read_csv_from_onedrive(token):
                     "status": str(row.get("Status", "Bereit")).strip()
                 }
             return datenbank
+        elif response.status_code == 404:
+            # KORREKTUR: Richtiger Funktionsname 'create_initial_csv_on_onedrive' statt 'create_initial_excel_on_onedrive'
+            create_initial_csv_on_onedrive(token)
     except Exception:
         pass
     return {}
@@ -112,7 +114,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def update_csv_status_on_onedrive(token, pin_to_update):
-    """Markiert den Kunden in der kunden_pins.csv als 'Ausgefüllt'."""
+    """Markiert den Kunden in der kunden_pins.csv as 'Ausgefüllt'."""
     try:
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
         headers = {"Authorization": f"Bearer {token}"}
@@ -416,7 +418,7 @@ Garage: {garage}
             # === ONEDRIVE HOCHLADEN-PROZESS ===
             if token:
                 with st.spinner("Daten werden sicher übertragen..."):
-                    # 1. ERSTELLT DIE CSV-DATEI AUTOMATISCH IM HINTERGRUND
+                    # 1. ERSTELLT DIE CSV-DATEI BEIM ALLERERSTEN ABSENDEN IM HINTERGRUND!
                     create_initial_csv_on_onedrive(token)
                     
                     # 2. Lädt die Kundendaten hoch (Mit automatischem Überschreibschutz!)
