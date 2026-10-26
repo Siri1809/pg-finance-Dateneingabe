@@ -268,7 +268,7 @@ if is_master_pin or is_valid_customer:
                         
                         st.write("---")
                         st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://kfz-tarif-helfer.streamlit.app\n\n🔑 Deine persönliche PIN lautet: *{safe_new_pin}*"
+                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://kfz-tarif-helfer.streamlit.app\n\n🔑 Deine persönliche PIN lautet: {safe_new_pin}"
                         st.code(wa_text, language="text")
                     else:
                         st.error("Bitte alle Felder ausfüllen!")
