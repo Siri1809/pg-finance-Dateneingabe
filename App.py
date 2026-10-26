@@ -36,11 +36,34 @@ def get_onedrive_token():
         pass
     return None
 
-def read_excel_from_onedrive(token):
-    """Liest die kunden_pins.xlsx aus dem geschützten OneDrive App-Ordner."""
+def create_initial_excel_on_onedrive(token):
+    """Erstellt eine leere kunden_pins.xlsx auf OneDrive, falls diese fehlt."""
     try:
-        # KORREKTUR: Nutzt approot anstelle von drive/root für fehlerfreien Zugriff!
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/kunden_pins.xlsx:/content"
+        # Standard-Datenbank mit Ihren Wunsch-PINs
+        df = pd.DataFrame([
+            {"PIN": "1234", "Vorname": "Patrick", "Nachname": "Grellner", "Status": "Bereit"},
+            {"PIN": "0000", "Vorname": "Simon", "Nachname": "Seyschab", "Status": "Bereit"}
+        ])
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False)
+        output.seek(0)
+        
+        # Datei hochladen
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream"
+        }
+        requests.put(url, headers=headers, data=output.getvalue())
+    except Exception:
+        pass
+
+def read_excel_from_onedrive(token):
+    """Liest die kunden_pins.xlsx aus dem OneDrive-Ordner 'pg_finance_Dateneingabe'."""
+    try:
+        # KORREKTUR: Nutzt den absoluten root-Pfad passend zur 'Files.ReadWrite.All' Berechtigung!
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         
@@ -55,14 +78,18 @@ def read_excel_from_onedrive(token):
                     "status": str(row.get("Status", "Bereit")).strip()
                 }
             return datenbank
+        elif response.status_code == 404:
+            # Wenn die Datei fehlt, erstellen wir sie jetzt automatisch!
+            create_initial_excel_on_onedrive(token)
+            # Direkt noch einmal versuchen zu lesen
+            return read_excel_from_onedrive(token)
     except Exception:
         pass
     return {}
 
 def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     """Lädt eine Datei direkt in die tiefe Ordnerstruktur auf OneDrive hoch."""
-    # KORREKTUR: Nutzt approot anstelle von drive/root!
-    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/{path_structure}/{file_name}:/content"
+    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{file_name}:/content"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/octet-stream"
@@ -73,7 +100,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
 def update_excel_status_on_onedrive(token, pin_to_update):
     """Markiert den Kunden in der Excel-Tabelle auf OneDrive als 'Ausgefüllt'."""
     try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/kunden_pins.xlsx:/content"
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
@@ -93,10 +120,14 @@ def update_excel_status_on_onedrive(token, pin_to_update):
 token = get_onedrive_token()
 KUNDEN_DATENBANK = read_excel_from_onedrive(token) if token else {}
 
-# KORREKTUR: Die unsicheren Standard-Backup-PINs wurden komplett entfernt! 
-# Wenn keine Excel-Verbindung besteht, bleibt das System aus Sicherheitsgründen gesperrt.
+# Lokales Backup nur aktiv, falls absolut keine Verbindung aufgebaut werden kann
+if not KUNDEN_DATENBANK:
+    KUNDEN_DATENBANK = {
+        "0000": {"nachname": "Seyschab", "vorname": "Simon", "status": "Bereit"},
+        "1234": {"nachname": "Grellner", "vorname": "Patrick", "status": "Bereit"}
+    }
 
-# CSS (Inklusive den neuen, modernen Kopier-Effekten)
+# CSS (Unverändert!)
 st.markdown("""
     <style>
     .stApp {
@@ -241,7 +272,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# 4. Sicherheits-Schranke: Die PIN-Eingabe
+# 4. Sicherheits-Schranke: Die PIN-Eingabe (Wieder in der Karte verpackt!)
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -339,7 +370,7 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     if pflichtfelder_ausgefuellt:
         if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
             
-            # KORREKTUR: Verschachtelte Ordnerstruktur (Nachname_Vorname / Kennzeichen)
+            # Ordnerstruktur (Nachname_Vorname / Kennzeichen)
             safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
             kunden_ordner_name = f"{name}_{vorname}"
             vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
@@ -389,12 +420,10 @@ Garage: {garage}
             else:
                 st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
 
-            # KORREKTE SICHERHEITS-LOGIK: Kopierbereich mit dem edlen "Zwei-Vierecke"-Symbol!
-            # Erscheint NUR für Simons oder Patricks PIN (0000 und 1234)!
+            # Klick-Kopier-Schnittstelle im edlen Gemini-Style!
             if pin_eingabe in ["0000", "1234"]:
                 st.write("---")
                 st.subheader("📋 Kopierbereich für das Maklerbüro")
-                # Streamlit nutzt für den Code-Block standardmäßig das schicke "Zwei-Vierecke"-Symbol zum Kopieren!
                 st.code(infotext, language="text")
 
     else:
