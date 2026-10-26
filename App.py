@@ -320,16 +320,17 @@ if is_master_pin or is_valid_customer:
         # Filtert alle echten Kunden aus der Tabelle heraus
         kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
         
-        # Spalten-Fallback gegen KeyErrors
-        for col in ["Nachname", "Vorname", "Kennzeichen"]:
-            if col not in kunden_df.columns:
-                kunden_df[col] = "Nicht angegeben"
+        # KORREKTUR: Füllt alle leeren Felder (NaN) in den kritischen Spalten mit einem Text-Platzhalter!
+        kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt")
+        kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt")
+        kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("Noch keine Daten eingereicht")
         
         if not kunden_df.empty:
+            # Jetzt kann kunden_df["Kennzeichen"] garantiert keine leeren Werte (NaN) mehr enthalten!
             kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
             ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
             
-            # KORREKTUR: Führt den Split erst aus, wenn WIRKLICH ein Kunde ausgewählt wurde (Löst den AttributeError!)
+            # Führt den Split erst aus, wenn WIRKLICH ein Kunde ausgewählt wurde
             if ausgewaehlter_kunden_name:
                 nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
                 vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
