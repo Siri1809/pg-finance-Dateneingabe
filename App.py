@@ -123,13 +123,13 @@ for col in erforderliche_spalten:
         df_db[col] = ""
 
 # =========================================================================
-# KORREKTUR: INTELLIGENTE PIN-BEREINIGUNG (Löst den "Falsche PIN" Fehler!)
+# KORREKTE FEHLERBEREINIGUNG (LÖST ATTRIBUTERROR & GEISTERZEILEN!)
 # =========================================================================
 if not df_db.empty:
-    # 1. Entfernt alle leeren Zeilen ohne PIN
-    df_db = df_db[df_db["PIN"].notna()]
+    # 1. Entfernt alle Zeilen, bei denen PIN, Nachname oder Vorname komplett leer (NaN) sind
+    df_db = df_db.dropna(subset=["PIN", "Nachname", "Vorname"], how="any")
     
-    # 2. Wandelt PINs in sauberen Text um, entfernt .0 und füllt mit Nullen auf
+    # 2. Wandelt PINs in saubere 4-stellige Text-Werte um (entfernt Excel-Kommastellen)
     def clean_pin_val(x):
         val = str(x).strip()
         if val.endswith(".0"):
@@ -161,8 +161,7 @@ if PIN_SIMON not in KUNDEN_DATENBANK:
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
-# Login-Kontrollen initialisieren
-# Wir stellen sicher, dass auch die eingetippte PIN des Nutzers perfekt gesäubert verglichen wird!
+# Login-Kontrollen initialisieren (Gleicht Benutzereingabe mit gesäuberten PINs ab)
 tipp_pin = str(pin_eingabe).strip()
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
@@ -184,20 +183,17 @@ if is_master_pin or is_valid_customer:
         # Filtert alle echten Kunden aus der Tabelle heraus
         kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
         
-        # Spalten-Fallback gegen KeyErrors
-        for col in ["Nachname", "Vorname", "Kennzeichen"]:
-            if col not in kunden_df.columns:
-                kunden_df[col] = "Nicht angegeben"
-        
         if not kunden_df.empty:
-            kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt")
-            kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt")
-            kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("Noch keine Daten eingereicht")
+            # Füllt leere Kennzeichen sauber auf, damit es beim String-Verbinden nicht zu NaN-Werten kommt
+            kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str)
+            kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str)
+            kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("Noch kein Auto eingereicht").astype(str)
             
-            kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
+            # Baut den Anzeigenamen zusammen
+            kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"] + " (" + kunden_df["Kennzeichen"] + ")"
             ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
             
-            # Führt den Split erst aus, wenn WIRKLICH ein Kunde ausgewählt wurde
+            # Führt den Split erst aus, wenn WIRKLICH ein Kunde ausgewählt wurde (Löst den AttributeError!)
             if ausgewaehlter_kunden_name:
                 nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
                 vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
