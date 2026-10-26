@@ -13,16 +13,19 @@ st.set_page_config(
     layout="centered"
 )
 
-
 # === MICROSOFT ONEDRIVE CONFIG ===
 USER_SYSTEM_NAME = "s.seyschab@pg-finance.de"
 CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-# === 🔑 MAKLER-PINS ===
+# === 🔑 MAKLER-PINS (Sicher im Code verankert) ===
 PIN_SIMON = "Siri0921"
 PIN_CHEF = "legen_daer"
+
+# =========================================================================
+# 🛠️ ALLE HILFS-FUNKTIONEN (Müssen ganz oben stehen, damit Python sie kennt!)
+# =========================================================================
 
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
@@ -60,7 +63,6 @@ def create_initial_csv_on_onedrive(token):
     except Exception:
         pass
 
-@st.cache_data(ttl=5) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Sekunden
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -138,6 +140,10 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
+# =========================================================================
+# ⚙️ SYSTEM-ABFRAGEN UND START DER APPLIKATION
+# =========================================================================
+
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
@@ -184,152 +190,15 @@ if not df_db.empty:
             "Kennzeichen": r.get("Kennzeichen", "") if pd.notna(r.get("Kennzeichen")) else ""
         }
 
-# Ergänzt die Master-PINs
+# Ergänzt die Master-PINs im Speicher-Fallback
 if PIN_SIMON not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
-# === CSS (Unverändert!) ===
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #ffffff !important;
-        background-image: none !important;
-        color: #2d3748 !important;
-        font-family: 'Varela Round', 'Varela', sans-serif !important;
-    }
-    .main-title {
-        font-family: 'Varela Round', sans-serif;
-        color: #0b4aa0;
-        font-weight: 700;
-        font-size: 2.2rem;
-        text-align: center;
-        margin-top: 10px;
-        margin-bottom: 5px;
-    }
-    .main-subtitle {
-        text-align: center;
-        color: #718096;
-        font-size: 1.1rem;
-        margin-bottom: 20px;
-    }
-    .form-card {
-        background-color: #ffffff;
-        padding: 24px;
-        border-radius: 12px;
-        border: 1px solid #edf2f7;
-        margin-top: 0px !important;
-        margin-bottom: 25px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-    }
-    .card-header {
-        color: #0b4aa0 !important;
-        font-size: 1.35rem !important;
-        font-weight: bold !important;
-        font-family: 'Varela Round', sans-serif !important;
-        margin-top: 0px !important;
-        margin-bottom: 20px !important;
-        border-bottom: 2px solid #00aeeb !important;
-        padding-bottom: 8px !important;
-        display: block !important;
-    }
-    .stTextInput input, .stNumberInput input, .stDateInput input {
-        background-color: #ffffff !important;
-        color: #0b4aa0 !important;
-        border: 2px solid #00aeeb !important;
-        border-radius: 6px !important;
-        padding: 10px 14px !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-weight: bold !important;
-        outline: none !important;
-        box-shadow: none !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-    }
-    .stSelectbox div[role="button"], 
-    .stSelectbox div[data-baseweb="select"], 
-    .stSelectbox [data-baseweb="select"] > div {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    .stSelectbox [data-baseweb="select"] {
-        background-color: #ffffff !important;
-        border: 2px solid #00aeeb !important;
-        border-radius: 6px !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-weight: bold !important;
-        box-shadow: none !important;
-        outline: none !important;
-        padding: 2px 4px !important;
-    }
-    .stSelectbox span, .stSelectbox div {
-        color: #0b4aa0 !important;
-        font-weight: bold !important;
-    }
-    .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
-        border-color: #0b4aa0 !important;
-    }
-    .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
-        border-color: #0b4aa0 !important;
-        box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
-    }
-    [data-testid="stFileUploaderDropzone"] {
-        border: 2px dashed #00aeeb !important;
-        background-color: #f7fafc !important;
-        border-radius: 8px !important;
-        padding: 15px !important;
-        box-shadow: none !important;
-        transition: all 0.3s ease !important;
-    }
-    .stFileUploader button {
-        background-color: #00aeeb !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: bold !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-size: 13px !important;
-        padding: 6px 14px !important;
-        border-radius: 6px !important;
-    }
-    .stAlert p, .stAlert span, .stAlert div {
-        color: #1a1a1a !important;
-        font-weight: bold !important;
-    }
-    label {
-        color: #0b4aa0 !important;
-        font-weight: bold !important;
-        font-size: 0.95rem !important;
-        margin-bottom: 6px !important;
-    }
-    div.stButton > button:first-child {
-        background-color: #00aeeb !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: 600 !important;
-        font-family: 'Varela Round', sans-serif !important;
-        border-radius: 6px !important;
-        padding: 14px 40px !important;
-        font-size: 16px !important;
-        width: 100% !important;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
-        margin-bottom: 20px !important;
-    }
-    .makler-label {
-        font-weight: bold;
-        color: #718096;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# =========================================================================
+# 🏠 STREAMLIT OBERFLÄCHE (VISUELL)
+# =========================================================================
 
 # Logo & Überschrift laden (Immer sichtbar)
 LOGO_DATEINAME = "pg-finance_Logo.jpg"
@@ -342,9 +211,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# =========================================================================
-# KORREKTE CODE-REIHENFOLGE: DIE PIN-EINGABE STEHT JETZT GANZ OBEN!
-# =========================================================================
+# PIN-Eingabemaske
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -352,165 +219,16 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Erst NACH der Eingabe werden alle Prüfungen und Imports durchgeführt!
+# Bereinigung der Benutzereingabe
 tipp_pin = str(pin_eingabe).strip()
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
 
 is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
+is_valid_customer = tipp_pin in KUNDEN_DATENBANK
 weitere_fahrer_vorhanden = False # NameError Schutz
 
-# === MICROSOFT ONEDRIVE FUNKTIONEN ===
-def get_onedrive_token():
-    try:
-        url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        data = {
-            "client_id": CLIENT_ID,
-            "scope": "https://graph.microsoft.com/.default",
-            "client_secret": CLIENT_SECRET,
-            "grant_type": "client_credentials"
-        }
-        response = requests.post(url, headers=headers, data=data)
-        if response.status_code == 200:
-            return response.json().get("access_token")
-    except Exception:
-        pass
-    return None
-
-def create_initial_csv_on_onedrive(token):
-    try:
-        check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv"
-        headers = {"Authorization": f"Bearer {token}"}
-        check_res = requests.get(check_url, headers=headers)
-        
-        if check_res.status_code == 404: # Datei fehlt
-            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Finanzierung"
-            for i in range(1, 6):
-                base_cols += f",Fahrer_{i}_Nachname,Fahrer_{i}_Vorname,Fahrer_{i}_Geburtsdatum,Fahrer_{i}_Erwerbsdatum"
-            base_cols += "\n"
-            
-            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
-            requests.put(upload_url, headers=headers, data=base_cols.encode("utf-8"))
-    except Exception:
-        pass
-
-@st.cache_data(ttl=5)
-def read_csv_from_onedrive(token):
-    try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
-        headers = {"Authorization": f"Bearer {token}"}
-        response = requests.get(url, headers=headers)
-        
-        if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content))
-            return df
-        elif response.status_code == 404:
-            create_initial_csv_on_onedrive(token)
-    except Exception:
-        pass
-    return pd.DataFrame()
-
-def check_file_exists_on_onedrive(token, path_structure, file_name):
-    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{file_name}"
-    headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(url, headers=headers)
-    return res.status_code == 200
-
-def create_onedrive_folder(token, folder_name):
-    try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{folder_name}"
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get(url, headers=headers)
-        if res.status_code == 404:
-            create_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe:/children"
-            create_headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            body = {
-                "name": folder_name,
-                "folder": {},
-                "@microsoft.graph.conflictBehavior": "replace"
-            }
-            requests.post(create_url, headers=create_headers, json=body)
-    except Exception:
-        pass
-
-def upload_file_to_onedrive(token, path_structure, file_name, file_content):
-    aktuelle_jahreszahl = datetime.now().strftime("%Y")
-    name_teil, endung = os.path.splitext(file_name)
-    neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
-    
-    zaehler = 1
-    while check_file_exists_on_onedrive(token, path_structure, neuer_dateiname):
-        neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}_{zaehler}{endung}"
-        zaehler += 1
-        
-    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{neuer_dateiname}:/content?@microsoft.graph.conflictBehavior=replace"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/octet-stream"
-    }
-    requests.put(url, headers=headers, data=file_content)
-
-def save_database_to_onedrive(token, df):
-    try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/octet-stream"
-        }
-        csv_buffer = BytesIO()
-        df.to_csv(csv_buffer, index=False)
-        requests.put(url, headers=headers, data=csv_buffer.getvalue())
-        st.cache_data.clear()
-    except Exception:
-        pass
-
-# Token und Datenbank laden (Erst ausführen, wenn PIN eingetippt wurde!)
-df_db = pd.DataFrame()
-if tipp_pin != "":
-    token = get_onedrive_token()
-    df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
-
-    # Zwingt den DataFrame, alle Spalten zu besitzen
-    for col in erforderliche_spalten:
-        if col not in df_db.columns:
-            df_db[col] = ""
-
-    # Bereinigung der PIN-Formate
-    if not df_db.empty:
-        df_db = df_db.dropna(subset=["PIN"])
-        df_db = df_db[df_db["PIN"].astype(str).str.strip() != ""]
-        df_db["PIN"] = df_db["PIN"].apply(clean_pin_val)
-
-# KUNDEN_DATENBANK im Speicher füllen
-KUNDEN_DATENBANK = {}
-if not df_db.empty:
-    for _, r in df_db.iterrows():
-        p_val = str(r["PIN"]).strip()
-        KUNDEN_DATENBANK[p_val] = {
-            "nachname": str(r["Nachname"]).strip() if pd.notna(r["Nachname"]) else "",
-            "vorname": str(r["Vorname"]).strip() if pd.notna(r["Vorname"]) else "",
-            "weitere_vornamen": r.get("Weitere_Vornamen", "") if pd.notna(r.get("Weitere_Vornamen")) else "",
-            "Geburtsort": r.get("Geburtsort", "") if pd.notna(r.get("Geburtsort")) else "",
-            "Familienstand": r.get("Familienstand", "Ledig") if pd.notna(r.get("Familienstand")) else "Ledig",
-            "VN_Status": r.get("VN_Status", "Angestellter") if pd.notna(r.get("VN_Status")) else "Angestellter",
-            "Wohneigentum": r.get("Wohneigentum", "Nein, zur Miete") if pd.notna(r.get("Wohneigentum")) else "Nein, zur Miete",
-            "Garage": r.get("Garage", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage")) else "Einzel-/Doppelgarage",
-            "Fahrleistung": r.get("Fahrleistung", 10000) if pd.notna(r.get("Fahrleistung")) else 10000,
-            "Kennzeichen": r.get("Kennzeichen", "") if pd.notna(r.get("Kennzeichen")) else ""
-        }
-
-# Ergänzt die Master-PINs im Speicher
-if PIN_SIMON not in KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
-if PIN_CHEF not in KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
-
-is_valid_customer = tipp_pin in KUNDEN_DATENBANK
-
+# PRÜFUNG DES LOGINS
 if is_master_pin or is_valid_customer:
     
     # =========================================================================
@@ -806,6 +524,7 @@ if is_master_pin or is_valid_customer:
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
                 
+                # Ordnerstruktur (Nachname_Vorname / Kennzeichen)
                 safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
                 kunden_ordner_name = f"{name}_{vorname}"
                 vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
