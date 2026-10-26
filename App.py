@@ -13,6 +13,7 @@ st.set_page_config(
     layout="centered"
 )
 
+
 # === MICROSOFT ONEDRIVE CONFIG ===
 USER_SYSTEM_NAME = "s.seyschab@pg-finance.de"
 CLIENT_ID = st.secrets["microsoft"]["client_id"]
@@ -189,7 +190,7 @@ if PIN_SIMON not in KUNDEN_DATENBANK:
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
-# CSS (Unverändert!)
+# === CSS (Unverändert!) ===
 st.markdown("""
     <style>
     .stApp {
@@ -330,6 +331,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Logo & Überschrift laden (Immer sichtbar)
 LOGO_DATEINAME = "pg-finance_Logo.jpg"
 if os.path.exists(LOGO_DATEINAME):
     logo = Image.open(LOGO_DATEINAME)
@@ -340,7 +342,9 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# 4. Sicherheits-Schranke: Die PIN-Eingabe (In der Karte verpackt)
+# =========================================================================
+# KORREKTE CODE-REIHENFOLGE: DIE PIN-EINGABE STEHT JETZT GANZ OBEN!
+# =========================================================================
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -348,14 +352,164 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# KORREKTUR: Wir initialisieren 'pin_eingabe' erst nach der tatsächlichen Eingabe! (Löst den NameError)
+# Erst NACH der Eingabe werden alle Prüfungen und Imports durchgeführt!
 tipp_pin = str(pin_eingabe).strip()
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
 
 is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
+weitere_fahrer_vorhanden = False # NameError Schutz
+
+# === MICROSOFT ONEDRIVE FUNKTIONEN ===
+def get_onedrive_token():
+    try:
+        url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "client_id": CLIENT_ID,
+            "scope": "https://graph.microsoft.com/.default",
+            "client_secret": CLIENT_SECRET,
+            "grant_type": "client_credentials"
+        }
+        response = requests.post(url, headers=headers, data=data)
+        if response.status_code == 200:
+            return response.json().get("access_token")
+    except Exception:
+        pass
+    return None
+
+def create_initial_csv_on_onedrive(token):
+    try:
+        check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv"
+        headers = {"Authorization": f"Bearer {token}"}
+        check_res = requests.get(check_url, headers=headers)
+        
+        if check_res.status_code == 404: # Datei fehlt
+            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Finanzierung"
+            for i in range(1, 6):
+                base_cols += f",Fahrer_{i}_Nachname,Fahrer_{i}_Vorname,Fahrer_{i}_Geburtsdatum,Fahrer_{i}_Erwerbsdatum"
+            base_cols += "\n"
+            
+            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+            requests.put(upload_url, headers=headers, data=base_cols.encode("utf-8"))
+    except Exception:
+        pass
+
+@st.cache_data(ttl=5)
+def read_csv_from_onedrive(token):
+    try:
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            df = pd.read_csv(BytesIO(response.content))
+            return df
+        elif response.status_code == 404:
+            create_initial_csv_on_onedrive(token)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+def check_file_exists_on_onedrive(token, path_structure, file_name):
+    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{file_name}"
+    headers = {"Authorization": f"Bearer {token}"}
+    res = requests.get(url, headers=headers)
+    return res.status_code == 200
+
+def create_onedrive_folder(token, folder_name):
+    try:
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{folder_name}"
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(url, headers=headers)
+        if res.status_code == 404:
+            create_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe:/children"
+            create_headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            body = {
+                "name": folder_name,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "replace"
+            }
+            requests.post(create_url, headers=create_headers, json=body)
+    except Exception:
+        pass
+
+def upload_file_to_onedrive(token, path_structure, file_name, file_content):
+    aktuelle_jahreszahl = datetime.now().strftime("%Y")
+    name_teil, endung = os.path.splitext(file_name)
+    neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
+    
+    zaehler = 1
+    while check_file_exists_on_onedrive(token, path_structure, neuer_dateiname):
+        neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}_{zaehler}{endung}"
+        zaehler += 1
+        
+    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{neuer_dateiname}:/content?@microsoft.graph.conflictBehavior=replace"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/octet-stream"
+    }
+    requests.put(url, headers=headers, data=file_content)
+
+def save_database_to_onedrive(token, df):
+    try:
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream"
+        }
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        requests.put(url, headers=headers, data=csv_buffer.getvalue())
+        st.cache_data.clear()
+    except Exception:
+        pass
+
+# Token und Datenbank laden (Erst ausführen, wenn PIN eingetippt wurde!)
+df_db = pd.DataFrame()
+if tipp_pin != "":
+    token = get_onedrive_token()
+    df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
+
+    # Zwingt den DataFrame, alle Spalten zu besitzen
+    for col in erforderliche_spalten:
+        if col not in df_db.columns:
+            df_db[col] = ""
+
+    # Bereinigung der PIN-Formate
+    if not df_db.empty:
+        df_db = df_db.dropna(subset=["PIN"])
+        df_db = df_db[df_db["PIN"].astype(str).str.strip() != ""]
+        df_db["PIN"] = df_db["PIN"].apply(clean_pin_val)
+
+# KUNDEN_DATENBANK im Speicher füllen
+KUNDEN_DATENBANK = {}
+if not df_db.empty:
+    for _, r in df_db.iterrows():
+        p_val = str(r["PIN"]).strip()
+        KUNDEN_DATENBANK[p_val] = {
+            "nachname": str(r["Nachname"]).strip() if pd.notna(r["Nachname"]) else "",
+            "vorname": str(r["Vorname"]).strip() if pd.notna(r["Vorname"]) else "",
+            "weitere_vornamen": r.get("Weitere_Vornamen", "") if pd.notna(r.get("Weitere_Vornamen")) else "",
+            "Geburtsort": r.get("Geburtsort", "") if pd.notna(r.get("Geburtsort")) else "",
+            "Familienstand": r.get("Familienstand", "Ledig") if pd.notna(r.get("Familienstand")) else "Ledig",
+            "VN_Status": r.get("VN_Status", "Angestellter") if pd.notna(r.get("VN_Status")) else "Angestellter",
+            "Wohneigentum": r.get("Wohneigentum", "Nein, zur Miete") if pd.notna(r.get("Wohneigentum")) else "Nein, zur Miete",
+            "Garage": r.get("Garage", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage")) else "Einzel-/Doppelgarage",
+            "Fahrleistung": r.get("Fahrleistung", 10000) if pd.notna(r.get("Fahrleistung")) else 10000,
+            "Kennzeichen": r.get("Kennzeichen", "") if pd.notna(r.get("Kennzeichen")) else ""
+        }
+
+# Ergänzt die Master-PINs im Speicher
+if PIN_SIMON not in KUNDEN_DATENBANK:
+    KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
+if PIN_CHEF not in KUNDEN_DATENBANK:
+    KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
+
 is_valid_customer = tipp_pin in KUNDEN_DATENBANK
-weitere_fahrer_vorhanden = False 
 
 if is_master_pin or is_valid_customer:
     
@@ -364,8 +518,6 @@ if is_master_pin or is_valid_customer:
     # =========================================================================
     if is_master_pin:
         st.success(f"🔓 Willkommen im Makler-Verwaltungs-Modus!")
-        
-        # Der Reiter liegt an der allerersten Stelle
         makler_reiter = st.radio("Aktion wählen:", ["➕ Neuen Kunden-Zugang anlegen", "📋 Kundendaten kopieren"])
         
         # --- REITER 1: KUNDEN MOBIL ANLEGEN ---
@@ -382,17 +534,14 @@ if is_master_pin or is_valid_customer:
                     if new_n and new_v and new_pin:
                         safe_new_pin = str(new_pin).strip()
                         
-                        # Neue Zeile für die kunden_pins.csv aufbauen
                         neuer_k_row = {col: "" for col in df_db.columns}
                         neuer_k_row["PIN"] = safe_new_pin
                         neuer_k_row["Nachname"] = str(new_n).strip()
                         neuer_k_row["Vorname"] = str(new_v).strip()
                         
-                        # In die Datenbank einfügen und sofort sichern
                         df_db = pd.concat([df_db, pd.DataFrame([neuer_k_row])], ignore_index=True)
                         save_database_to_onedrive(token, df_db)
                         
-                        # Erstellt sofort den leeren Kunden-Hauptordner auf OneDrive!
                         k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
                         create_onedrive_folder(token, k_ordner)
                         
@@ -500,7 +649,6 @@ if is_master_pin or is_valid_customer:
         kunden_nachname = k_info["nachname"]
         kunden_vorname = k_info["vorname"]
         
-        # Intelligentes Voraussortieren aus OneDrive
         db_vornamen = k_info.get("weitere_vornamen", "") if pd.notna(k_info.get("weitere_vornamen")) else ""
         db_geburtsort = k_info.get("Geburtsort", "") if pd.notna(k_info.get("Geburtsort")) else ""
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
@@ -534,7 +682,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -566,7 +714,6 @@ if is_master_pin or is_valid_customer:
             else:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
 
-        st.write("")
         fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -626,7 +773,6 @@ if is_master_pin or is_valid_customer:
         """, unsafe_allow_html=True)
         st.info("💡 Dokumente oder Fotos können Sie ganz einfach direkt mit Ihrer Smartphone-Kamera aufnehmen.")
         
-        st.write("") 
         police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
         
         col_fs1, col_fs2 = st.columns(2)
@@ -660,7 +806,6 @@ if is_master_pin or is_valid_customer:
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
                 
-                # Ordnerstruktur (Nachname_Vorname / Kennzeichen)
                 safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
                 kunden_ordner_name = f"{name}_{vorname}"
                 vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
