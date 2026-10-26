@@ -122,178 +122,37 @@ for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
 
-# Bereinigung der PINs im DataFrame, falls die Tabelle gelesen werden konnte
+# =========================================================================
+# KORREKTUR: INTELLIGENTE PIN-BEREINIGUNG (Löst den "Falsche PIN" Fehler!)
+# =========================================================================
 if not df_db.empty:
-    df_db["PIN"] = df_db["PIN"].astype(str).str.strip().str.replace(".0", "", regex=False)
-    df_db["PIN"] = df_db["PIN"].apply(lambda x: x.zfill(4) if (x.isdigit() and len(x) < 4) else x)
+    # 1. Entfernt alle leeren Zeilen ohne PIN
+    df_db = df_db[df_db["PIN"].notna()]
+    
+    # 2. Wandelt PINs in sauberen Text um, entfernt .0 und füllt mit Nullen auf
+    def clean_pin_val(x):
+        val = str(x).strip()
+        if val.endswith(".0"):
+            val = val[:-2]
+        if val.isdigit() and len(val) < 4:
+            val = val.zfill(4)
+        return val
 
-# CSS (Unverändert!)
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #ffffff !important;
-        background-image: none !important;
-        color: #2d3748 !important;
-        font-family: 'Varela Round', 'Varela', sans-serif !important;
-    }
-    .main-title {
-        font-family: 'Varela Round', sans-serif;
-        color: #0b4aa0;
-        font-weight: 700;
-        font-size: 2.2rem;
-        text-align: center;
-        margin-top: 10px;
-        margin-bottom: 5px;
-    }
-    .main-subtitle {
-        text-align: center;
-        color: #718096;
-        font-size: 1.1rem;
-        margin-bottom: 20px;
-    }
-    .form-card {
-        background-color: #ffffff;
-        padding: 24px;
-        border-radius: 12px;
-        border: 1px solid #edf2f7;
-        margin-top: 0px !important;
-        margin-bottom: 25px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-    }
-    .card-header {
-        color: #0b4aa0 !important;
-        font-size: 1.35rem !important;
-        font-weight: bold !important;
-        font-family: 'Varela Round', sans-serif !important;
-        margin-top: 0px !important;
-        margin-bottom: 20px !important;
-        border-bottom: 2px solid #00aeeb !important;
-        padding-bottom: 8px !important;
-        display: block !important;
-    }
-    .stTextInput input, .stNumberInput input, .stDateInput input {
-        background-color: #ffffff !important;
-        color: #0b4aa0 !important;
-        border: 2px solid #00aeeb !important;
-        border-radius: 6px !important;
-        padding: 10px 14px !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-weight: bold !important;
-        outline: none !important;
-        box-shadow: none !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-    }
-    .stSelectbox div[role="button"], 
-    .stSelectbox div[data-baseweb="select"], 
-    .stSelectbox [data-baseweb="select"] > div {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    .stSelectbox [data-baseweb="select"] {
-        background-color: #ffffff !important;
-        border: 2px solid #00aeeb !important;
-        border-radius: 6px !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-weight: bold !important;
-        box-shadow: none !important;
-        outline: none !important;
-        padding: 2px 4px !important;
-    }
-    .stSelectbox span, .stSelectbox div {
-        color: #0b4aa0 !important;
-        font-weight: bold !important;
-    }
-    .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
-        border-color: #0b4aa0 !important;
-    }
-    .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
-        border-color: #0b4aa0 !important;
-        box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
-    }
-    [data-testid="stFileUploaderDropzone"] {
-        border: 2px dashed #00aeeb !important;
-        background-color: #f7fafc !important;
-        border-radius: 8px !important;
-        padding: 15px !important;
-        box-shadow: none !important;
-        transition: all 0.3s ease !important;
-    }
-    .stFileUploader button {
-        background-color: #00aeeb !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: bold !important;
-        font-family: 'Varela Round', sans-serif !important;
-        font-size: 13px !important;
-        padding: 6px 14px !important;
-        border-radius: 6px !important;
-    }
-    .stAlert p, .stAlert span, .stAlert div {
-        color: #1a1a1a !important;
-        font-weight: bold !important;
-    }
-    label {
-        color: #0b4aa0 !important;
-        font-weight: bold !important;
-        font-size: 0.95rem !important;
-        margin-bottom: 6px !important;
-    }
-    div.stButton > button:first-child {
-        background-color: #00aeeb !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: 600 !important;
-        font-family: 'Varela Round', sans-serif !important;
-        border-radius: 6px !important;
-        padding: 14px 40px !important;
-        font-size: 16px !important;
-        width: 100% !important;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
-        margin-bottom: 20px !important;
-    }
-    .makler-label {
-        font-weight: bold;
-        color: #718096;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-    }
-    </style>
-""", unsafe_allow_html=True)
+    df_db["PIN"] = df_db["PIN"].apply(clean_pin_val)
+# =========================================================================
 
-LOGO_DATEINAME = "pg-finance_Logo.jpg"
-if os.path.exists(LOGO_DATEINAME):
-    logo = Image.open(LOGO_DATEINAME)
-    col1, col2, col3 = st.columns(3)
-    with col2:
-        st.image(logo, use_container_width=True)
-
-st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
-st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
-
-# 4. Sicherheits-Schranke: Die PIN-Eingabe (In der Karte verpackt)
-st.markdown("""
-        <div class="form-card">
-            <span class="card-header">🔑 Zugang freischalten</span>
-    """, unsafe_allow_html=True)
-pin_eingabe = st.text_input("PIN-Eingabe", type="password", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
-st.markdown('</div>', unsafe_allow_html=True)
-
-# KUNDEN_DATENBANK im Speicher füllen (Zieht sich die PINs aus dem DataFrame)
+# KUNDEN_DATENBANK im Speicher füllen (PIN-Abgleich)
 KUNDEN_DATENBANK = {}
 if not df_db.empty:
     for _, r in df_db.iterrows():
         p_val = str(r["PIN"]).strip()
         KUNDEN_DATENBANK[p_val] = {
             "nachname": str(r["Nachname"]).strip(),
-            "vorname": str(r["Vorname"]).strip()
+            "vorname": str(r["Vorname"]).strip(),
+            "Geburtsort": r.get("Geburtsort", ""),
+            "Familienstand": r.get("Familienstand", "Ledig"),
+            "Garage": r.get("Garage", "Einzel-/Doppelgarage"),
+            "Fahrleistung": r.get("Fahrleistung", 10000)
         }
 
 # Falls die Excel leer ist, erzwingen wir die Master-PINs als Fallback im Speicher
@@ -303,9 +162,14 @@ if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
 # Login-Kontrollen initialisieren
-is_master_pin = str(pin_eingabe).strip() in [PIN_SIMON, PIN_CHEF]
-is_valid_customer = str(pin_eingabe).strip() in KUNDEN_DATENBANK
-weitere_fahrer_vorhanden = False # KORREKTE INITIALISIERUNG gegen NameErrors!
+# Wir stellen sicher, dass auch die eingetippte PIN des Nutzers perfekt gesäubert verglichen wird!
+tipp_pin = str(pin_eingabe).strip()
+if tipp_pin.isdigit() and len(tipp_pin) < 4:
+    tipp_pin = tipp_pin.zfill(4)
+
+is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
+is_valid_customer = tipp_pin in KUNDEN_DATENBANK
+weitere_fahrer_vorhanden = False 
 
 if is_master_pin or is_valid_customer:
     
@@ -320,13 +184,16 @@ if is_master_pin or is_valid_customer:
         # Filtert alle echten Kunden aus der Tabelle heraus
         kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
         
-        # KORREKTUR: Füllt alle leeren Felder (NaN) in den kritischen Spalten mit einem Text-Platzhalter!
-        kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt")
-        kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt")
-        kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("Noch keine Daten eingereicht")
+        # Spalten-Fallback gegen KeyErrors
+        for col in ["Nachname", "Vorname", "Kennzeichen"]:
+            if col not in kunden_df.columns:
+                kunden_df[col] = "Nicht angegeben"
         
         if not kunden_df.empty:
-            # Jetzt kann kunden_df["Kennzeichen"] garantiert keine leeren Werte (NaN) mehr enthalten!
+            kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt")
+            kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt")
+            kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("Noch keine Daten eingereicht")
+            
             kunden_df["Anzeige_Name"] = kunden_df["Nachname"].astype(str) + ", " + kunden_df["Vorname"].astype(str) + " (" + kunden_df["Kennzeichen"].astype(str) + ")"
             ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", kunden_df["Anzeige_Name"].unique())
             
@@ -385,7 +252,7 @@ if is_master_pin or is_valid_customer:
     # 🚗 MODUS B: DIE INTELLIGENTE EINGABEMASKE FÜR IHRE KUNDEN
     # =========================================================================
     else:
-        k_info = KUNDEN_DATENBANK[pin_eingabe]
+        k_info = KUNDEN_DATENBANK[tipp_pin]
         kunden_nachname = k_info["nachname"]
         kunden_vorname = k_info["vorname"]
         
