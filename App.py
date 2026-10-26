@@ -196,6 +196,150 @@ if PIN_SIMON not in KUNDEN_DATENBANK:
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
+
+# CSS (Unverändert!)
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #ffffff !important;
+        background-image: none !important;
+        color: #2d3748 !important;
+        font-family: 'Varela Round', 'Varela', sans-serif !important;
+    }
+    .main-title {
+        font-family: 'Varela Round', sans-serif;
+        color: #0b4aa0;
+        font-weight: 700;
+        font-size: 2.2rem;
+        text-align: center;
+        margin-top: 10px;
+        margin-bottom: 5px;
+    }
+    .main-subtitle {
+        text-align: center;
+        color: #718096;
+        font-size: 1.1rem;
+        margin-bottom: 20px;
+    }
+    .form-card {
+        background-color: #ffffff;
+        padding: 24px;
+        border-radius: 12px;
+        border: 1px solid #edf2f7;
+        margin-top: 0px !important;
+        margin-bottom: 25px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+    }
+    .card-header {
+        color: #0b4aa0 !important;
+        font-size: 1.35rem !important;
+        font-weight: bold !important;
+        font-family: 'Varela Round', sans-serif !important;
+        margin-top: 0px !important;
+        margin-bottom: 20px !important;
+        border-bottom: 2px solid #00aeeb !important;
+        padding-bottom: 8px !important;
+        display: block !important;
+    }
+    .stTextInput input, .stNumberInput input, .stDateInput input {
+        background-color: #ffffff !important;
+        color: #0b4aa0 !important;
+        border: 2px solid #00aeeb !important;
+        border-radius: 6px !important;
+        padding: 10px 14px !important;
+        font-family: 'Varela Round', sans-serif !important;
+        font-weight: bold !important;
+        outline: none !important;
+        box-shadow: none !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
+        border: none !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+    }
+    .stSelectbox div[role="button"], 
+    .stSelectbox div[data-baseweb="select"], 
+    .stSelectbox [data-baseweb="select"] > div {
+        border: none !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #ffffff !important;
+        border: 2px solid #00aeeb !important;
+        border-radius: 6px !important;
+        font-family: 'Varela Round', sans-serif !important;
+        font-weight: bold !important;
+        box-shadow: none !important;
+        outline: none !important;
+        padding: 2px 4px !important;
+    }
+    .stSelectbox span, .stSelectbox div {
+        color: #0b4aa0 !important;
+        font-weight: bold !important;
+    }
+    .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
+        border-color: #0b4aa0 !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
+        border-color: #0b4aa0 !important;
+        box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
+    }
+    [data-testid="stFileUploaderDropzone"] {
+        border: 2px dashed #00aeeb !important;
+        background-color: #f7fafc !important;
+        border-radius: 8px !important;
+        padding: 15px !important;
+        box-shadow: none !important;
+        transition: all 0.3s ease !important;
+    }
+    .stFileUploader button {
+        background-color: #00aeeb !important;
+        color: #ffffff !important;
+        border: none !important;
+        font-weight: bold !important;
+        font-family: 'Varela Round', sans-serif !important;
+        font-size: 13px !important;
+        padding: 6px 14px !important;
+        border-radius: 6px !important;
+    }
+    .stAlert p, .stAlert span, .stAlert div {
+        color: #1a1a1a !important;
+        font-weight: bold !important;
+    }
+    label {
+        color: #0b4aa0 !important;
+        font-weight: bold !important;
+        font-size: 0.95rem !important;
+        margin-bottom: 6px !important;
+    }
+    div.stButton > button:first-child {
+        background-color: #00aeeb !important;
+        color: #ffffff !important;
+        border: none !important;
+        font-weight: 600 !important;
+        font-family: 'Varela Round', sans-serif !important;
+        border-radius: 6px !important;
+        padding: 14px 40px !important;
+        font-size: 16px !important;
+        width: 100% !important;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
+        margin-bottom: 20px !important;
+    }
+    .makler-label {
+        font-weight: bold;
+        color: #718096;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+
 # =========================================================================
 # 🏠 STREAMLIT OBERFLÄCHE (VISUELL)
 # =========================================================================
