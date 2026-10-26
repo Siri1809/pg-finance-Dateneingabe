@@ -37,10 +37,10 @@ def get_onedrive_token():
     return None
 
 def read_excel_from_onedrive(token):
-    """Liest die kunden_pins.xlsx aus dem OneDrive-Ordner 'pg_finance_Dateneingabe'."""
+    """Liest die kunden_pins.xlsx aus dem geschützten OneDrive App-Ordner."""
     try:
-        # Greift auf den neuen, geteilten Ordnerpfad zu
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
+        # KORREKTUR: Nutzt approot anstelle von drive/root für fehlerfreien Zugriff!
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         
@@ -60,8 +60,9 @@ def read_excel_from_onedrive(token):
     return {}
 
 def upload_file_to_onedrive(token, path_structure, file_name, file_content):
-    """Lädt eine Datei in die tiefe Ordnerstruktur auf OneDrive hoch."""
-    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{file_name}:/content"
+    """Lädt eine Datei direkt in die tiefe Ordnerstruktur auf OneDrive hoch."""
+    # KORREKTUR: Nutzt approot anstelle von drive/root!
+    url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/{path_structure}/{file_name}:/content"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/octet-stream"
@@ -72,7 +73,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
 def update_excel_status_on_onedrive(token, pin_to_update):
     """Markiert den Kunden in der Excel-Tabelle auf OneDrive als 'Ausgefüllt'."""
     try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.xlsx:/content"
+        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/special/approot:/kunden_pins.xlsx:/content"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
@@ -92,17 +93,10 @@ def update_excel_status_on_onedrive(token, pin_to_update):
 token = get_onedrive_token()
 KUNDEN_DATENBANK = read_excel_from_onedrive(token) if token else {}
 
-# Lokales Backup falls OneDrive offline ist
-if not KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK = {
-        "pgffe": {"nachname": "Geck", "vorname": "Ramona", "status": "Bereit"},
-        "011026": {"nachname": "Truetsch", "vorname": "Tobias", "status": "Bereit"},
-        "0000": {"nachname": "Seyschab", "vorname": "Simon", "status": "Bereit"},
-        "1234": {"nachname": "Grellner", "vorname": "Patrick", "status": "Bereit"},
-        "mf1026": {"nachname": "Filip", "vorname": "Markus", "status": "Bereit"}
-    }
+# KORREKTUR: Die unsicheren Standard-Backup-PINs wurden komplett entfernt! 
+# Wenn keine Excel-Verbindung besteht, bleibt das System aus Sicherheitsgründen gesperrt.
 
-# CSS (Unverändert!)
+# CSS (Inklusive den neuen, modernen Kopier-Effekten)
 st.markdown("""
     <style>
     .stApp {
@@ -247,7 +241,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# 4. Sicherheits-Schranke: Die PIN-Eingabe (Wieder in der Karte verpackt!)
+# 4. Sicherheits-Schranke: Die PIN-Eingabe
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -315,7 +309,7 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     st.write("") 
     police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
     
-    # Führerscheine (OPTIONAL!)
+    # Führerscheine (OPTIONAL)
     st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-bottom: 2px;'>Führerschein aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
     col_fs1, col_fs2 = st.columns(2)
     with col_fs1:
@@ -323,7 +317,7 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     with col_fs2:
         fs_rueckseite = st.file_uploader("Rückseite", type=["pdf", "png", "jpg", "jpeg"], key="fs_hinten")
         
-    # Ausweise (OPTIONAL!)
+    # Ausweise (OPTIONAL)
     st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-top: 15px; margin-bottom: 2px;'>Ausweisdokument aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
     col_id1, col_id2 = st.columns(2)
     with col_id1:
@@ -337,7 +331,7 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Pflichtfelder-Validierung (Kennzeichen, Fahrzeugschein, Police und Datenschutz!)
+    # Pflichtfelder-Validierung
     pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
     pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
                                  and pflicht_kennzeichen and datenschutz_akzeptiert)
@@ -345,12 +339,12 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     if pflichtfelder_ausgefuellt:
         if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
             
-            # KORREKTUR: Aufbau der neuen, verschachtelten Ordnerstruktur
+            # KORREKTUR: Verschachtelte Ordnerstruktur (Nachname_Vorname / Kennzeichen)
             safe_kz = kennzeichen.replace(" ", "-").replace("/", "-")
             kunden_ordner_name = f"{name}_{vorname}"
             vollstaendiger_upload_pfad = f"{kunden_ordner_name}/{safe_kz}"
             
-            # Lokales Backup erstellen (für den Server)
+            # Lokales Backup erstellen
             local_backup_path = os.path.join(kunden_ordner_name, safe_kz)
             if not os.path.exists(local_backup_path):
                 os.makedirs(local_backup_path)
@@ -395,10 +389,12 @@ Garage: {garage}
             else:
                 st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
 
-            # KORREKTE SICHERHEITS-LOGIK: Kopierbereich blendet sich NUR für Simons oder Patricks Login ein!
+            # KORREKTE SICHERHEITS-LOGIK: Kopierbereich mit dem edlen "Zwei-Vierecke"-Symbol!
+            # Erscheint NUR für Simons oder Patricks PIN (0000 und 1234)!
             if pin_eingabe in ["0000", "1234"]:
                 st.write("---")
-                st.subheader("📋 Kopierbereich für das Maklerbüro (Nur für Sie sichtbar)")
+                st.subheader("📋 Kopierbereich für das Maklerbüro")
+                # Streamlit nutzt für den Code-Block standardmäßig das schicke "Zwei-Vierecke"-Symbol zum Kopieren!
                 st.code(infotext, language="text")
 
     else:
@@ -410,8 +406,6 @@ Garage: {garage}
         theme_img = Image.open(THEME_BILD)
         st.image(theme_img, use_container_width=True)
 
-elif pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status") == "Ausgefüllt":
-    st.error("❌ Diese PIN wurde bereits erfolgreich verwendet und ist abgelaufen. Bitte kontaktieren Sie Patrick Grellner Finance für einen neuen Zugang.")
 else:
     if pin_eingabe != "":
-        st.error("❌ Falsche PIN. Bitte prüfen Sie Ihre Eingabe.")
+        st.error("❌ Falsche PIN oder PIN bereits abgelaufen. Bitte prüfen Sie Ihre Eingabe.")
