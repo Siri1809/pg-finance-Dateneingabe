@@ -115,7 +115,6 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
         neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}_{zaehler}{endung}"
         zaehler += 1
         
-    # KORREKTUR: Zwingt Microsoft zum Überschreiben von Konflikten
     url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/{path_structure}/{neuer_dateiname}:/content?@microsoft.graph.conflictBehavior=replace"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -124,9 +123,8 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def save_database_to_onedrive(token, df):
-    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive (Konfliktfrei!)."""
+    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive."""
     try:
-        # KORREKTUR: Zwingt OneDrive mit '?@microsoft.graph.conflictBehavior=replace', die gesperrte CSV-Datei sofort zu überschreiben!
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -190,15 +188,6 @@ if PIN_SIMON not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
 if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
-
-# Login-Kontrollen initialisieren
-tipp_pin = str(pin_eingabe).strip()
-if tipp_pin.isdigit() and len(tipp_pin) < 4:
-    tipp_pin = tipp_pin.zfill(4)
-
-is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
-is_valid_customer = tipp_pin in KUNDEN_DATENBANK
-weitere_fahrer_vorhanden = False 
 
 # CSS (Unverändert!)
 st.markdown("""
@@ -356,8 +345,17 @@ st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
     """, unsafe_allow_html=True)
-pin_eingabe = st.text_input("PIN-Eingabe", type="password", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
+pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
+
+# KORREKTUR: Wir initialisieren 'pin_eingabe' erst nach der tatsächlichen Eingabe! (Löst den NameError)
+tipp_pin = str(pin_eingabe).strip()
+if tipp_pin.isdigit() and len(tipp_pin) < 4:
+    tipp_pin = tipp_pin.zfill(4)
+
+is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
+is_valid_customer = tipp_pin in KUNDEN_DATENBANK
+weitere_fahrer_vorhanden = False 
 
 if is_master_pin or is_valid_customer:
     
@@ -390,11 +388,11 @@ if is_master_pin or is_valid_customer:
                         neuer_k_row["Nachname"] = str(new_n).strip()
                         neuer_k_row["Vorname"] = str(new_v).strip()
                         
-                        # 1. In die Datenbank einfügen und sofort sichern (Zwingt zum Überschreiben!)
+                        # In die Datenbank einfügen und sofort sichern
                         df_db = pd.concat([df_db, pd.DataFrame([neuer_k_row])], ignore_index=True)
                         save_database_to_onedrive(token, df_db)
                         
-                        # 2. Erstellt sofort den leeren Kunden-Hauptordner auf OneDrive!
+                        # Erstellt sofort den leeren Kunden-Hauptordner auf OneDrive!
                         k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
                         create_onedrive_folder(token, k_ordner)
                         
@@ -536,7 +534,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -719,10 +717,7 @@ Weitere Fahrer: {wf_text_for_doc}
                         
                         # === LERNENDER DATENBANK-PROZESS ===
                         if not df_db.empty:
-                            # 1. Wir suchen nach exakt dieser PIN und diesem Kennzeichen
                             match_auto = df_db[(df_db["PIN"] == str(pin_eingabe)) & (df_db["Kennzeichen"] == str(kennzeichen))]
-                            
-                            # 2. Wir suchen nach einer leeren Stammzeile dieses Kunden
                             match_empty_stamm = df_db[(df_db["PIN"] == str(pin_eingabe)) & (df_db["Kennzeichen"].isna() | (df_db["Kennzeichen"] == ""))]
                             
                             neue_zeile = {
@@ -741,7 +736,6 @@ Weitere Fahrer: {wf_text_for_doc}
                                 "Finanzierung": str(finanzierungsart)
                             }
                             
-                            # Fahrer-Spalten in der Datenbank befüllen
                             for j in range(1, 6):
                                 if j <= len(weitere_fahrer_daten_liste):
                                     f_data = weitere_fahrer_daten_liste[j-1]
@@ -756,17 +750,14 @@ Weitere Fahrer: {wf_text_for_doc}
                                     neue_zeile[f"Fahrer_{j}_Erwerbsdatum"] = ""
                             
                             if not match_auto.empty:
-                                # Fall A: Das Auto existiert bereits -> Werte aktualisieren
                                 idx = match_auto.index[0]
                                 for col, val in neue_zeile.items():
                                     df_db.at[idx, col] = val
                             elif not match_empty_stamm.empty:
-                                # Fall B: Es gibt eine leere Stammzeile -> Überschreiben!
                                 idx = match_empty_stamm.index[0]
                                 for col, val in neue_zeile.items():
                                     df_db.at[idx, col] = val
                             else:
-                                # Fall C: Es ist ein neues Auto (Simon 2. Auto) -> Neue Zeile anhängen!
                                 df_db = pd.concat([df_db, pd.DataFrame([neue_zeile])], ignore_index=True)
                                 
                             save_database_to_onedrive(token, df_db)
