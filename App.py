@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from PIL import Image
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, date
 
 # 1. Seiteneinstellungen (Auf Smartphones optimiert)
 st.set_page_config(
@@ -40,21 +40,18 @@ def get_onedrive_token():
 def create_initial_csv_on_onedrive(token):
     """Erstellt eine leere, perfekt formatierte kunden_pins.csv auf OneDrive."""
     try:
-        # Prüfen, ob die CSV bereits existiert
         check_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv"
         headers = {"Authorization": f"Bearer {token}"}
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            # Standard-Kopfzeile und Ihre beiden Wunsch-PINs im CSV-Format (Komma-getrennt)
             csv_content = "PIN,Vorname,Nachname,Status\n1234,Patrick,Grellner,Bereit\n0000,Simon,Seyschab,Bereit\n"
-            
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
             requests.put(upload_url, headers=headers, data=csv_content.encode("utf-8"))
     except Exception:
         pass
 
-@st.cache_data(ttl=300) # RESSOURCEN-SCHUTZ: Fragt OneDrive nur alle 5 Minuten nach PIN-Updates ab
+@st.cache_data(ttl=300) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Minuten
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -66,7 +63,6 @@ def read_csv_from_onedrive(token):
             df = pd.read_csv(BytesIO(response.content))
             datenbank = {}
             for _, row in df.iterrows():
-                # Formatiert PINs sauber als Text (damit auch '0000' oder '1234' klappen)
                 raw_pin = str(row["PIN"]).strip()
                 if raw_pin.endswith(".0"): 
                     raw_pin = raw_pin[:-2]
@@ -80,9 +76,6 @@ def read_csv_from_onedrive(token):
                     "status": str(row.get("Status", "Bereit")).strip()
                 }
             return datenbank
-        elif response.status_code == 404:
-            # KORREKTUR: Richtiger Funktionsname 'create_initial_csv_on_onedrive' statt 'create_initial_excel_on_onedrive'
-            create_initial_csv_on_onedrive(token)
     except Exception:
         pass
     return {}
@@ -114,7 +107,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def update_csv_status_on_onedrive(token, pin_to_update):
-    """Markiert den Kunden in der kunden_pins.csv as 'Ausgefüllt'."""
+    """Markiert den Kunden in der kunden_pins.csv als 'Ausgefüllt'."""
     try:
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
         headers = {"Authorization": f"Bearer {token}"}
@@ -126,12 +119,10 @@ def update_csv_status_on_onedrive(token, pin_to_update):
             df.loc[df["PIN_Str"] == str(pin_to_update).replace(".0", ""), "Status"] = "Ausgefüllt"
             df.drop(columns=["PIN_Str"], inplace=True)
             
-            # CSV im Speicher neu schreiben
             csv_buffer = BytesIO()
             df.to_csv(csv_buffer, index=False)
             
             requests.put(url, headers=headers, data=csv_buffer.getvalue())
-            # Cache leeren, damit die Änderung sofort aktiv wird
             st.cache_data.clear()
     except Exception:
         pass
@@ -147,7 +138,7 @@ if not KUNDEN_DATENBANK:
         "1234": {"nachname": "Grellner", "vorname": "Patrick", "status": "Bereit"}
     }
 
-# CSS (Unverändert!)
+# CSS (Inklusive den neuen, modernen Datums-Picker Styles)
 st.markdown("""
     <style>
     .stApp {
@@ -191,7 +182,7 @@ st.markdown("""
         padding-bottom: 8px !important;
         display: block !important;
     }
-    .stTextInput input, .stNumberInput input {
+    .stTextInput input, .stNumberInput input, .stDateInput input {
         background-color: #ffffff !important;
         color: #0b4aa0 !important;
         border: 2px solid #00aeeb !important;
@@ -203,7 +194,7 @@ st.markdown("""
         box-shadow: none !important;
         transition: all 0.2s ease-in-out !important;
     }
-    .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"] {
+    .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
         border: none !important;
         background-color: transparent !important;
         box-shadow: none !important;
@@ -230,10 +221,10 @@ st.markdown("""
         color: #0b4aa0 !important;
         font-weight: bold !important;
     }
-    .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover {
+    .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
         border-color: #0b4aa0 !important;
     }
-    .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus {
+    .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
         border-color: #0b4aa0 !important;
         box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
     }
@@ -292,7 +283,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# 4. Sicherheits-Schranke: Die PIN-Eingabe (In der Karte verpackt)
+# 4. Sicherheits-Schranke: Die PIN-Eingabe
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -350,7 +341,32 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === KARTE 3: DOKUMENTE ===
+    # === NEU: KARTE 3: WEITERE FAHRER (Dynamisch ein- und ausklappbar!) ===
+    st.markdown("""
+        <div class="form-card">
+            <span class="card-header">👥 Weitere Fahrer</span>
+    """, unsafe_allow_html=True)
+    
+    weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=False)
+    
+    # Wenn der Haken gesetzt wird, öffnet sich dieser Bereich!
+    if weitere_fahrer_vorhanden:
+        st.write("") # Abstand
+        col_wf1, col_wf2 = st.columns(2)
+        with col_wf1:
+            wf_nachname = st.text_input("Nachname des weiteren Fahrers *")
+            wf_vorname = st.text_input("Vorname des weiteren Fahrers *")
+        with col_wf2:
+            # Datumsfelder für perfekte Eingabe auf Smartphones
+            wf_geburtsdatum = st.date_input("Geburtsdatum des weiteren Fahrers *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1))
+            wf_fs_datum = st.date_input("Führerschein-Erwerbsdatum *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1))
+    else:
+        # Fallback auf leere Werte, falls kein weiterer Fahrer existiert
+        wf_nachname, wf_vorname, wf_geburtsdatum, wf_fs_datum = "", "", "", ""
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # === KARTE 4: DOKUMENTE ===
     st.markdown("""
         <div class="form-card">
             <span class="card-header">📂 Dokumente hochladen</span>
@@ -360,21 +376,17 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     st.write("") 
     police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
     
-    # Führerscheine (OPTIONAL)
-    st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-bottom: 2px;'>Führerschein aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
     col_fs1, col_fs2 = st.columns(2)
     with col_fs1:
-        fs_vorderseite = st.file_uploader("Vorderseite", type=["pdf", "png", "jpg", "jpeg"], key="fs_vorn")
+        fs_vorderseite = st.file_uploader("Führerschein Vorderseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="fs_vorn")
     with col_fs2:
-        fs_rueckseite = st.file_uploader("Rückseite", type=["pdf", "png", "jpg", "jpeg"], key="fs_hinten")
+        fs_rueckseite = st.file_uploader("Führerschein Rückseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="fs_hinten")
         
-    # Ausweise (OPTIONAL)
-    st.markdown("<p style='color: #0b4aa0; font-weight: bold; margin-top: 15px; margin-bottom: 2px;'>Ausweisdokument aller berechtigten Fahrer (Optional)</p>", unsafe_allow_html=True)
     col_id1, col_id2 = st.columns(2)
     with col_id1:
-        ausweis_vorderseite = st.file_uploader("Vorderseite / Reisepass-Hauptseite", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_vorn")
+        ausweis_vorderseite = st.file_uploader("Ausweis Vorderseite / Reisepass (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_vorn")
     with col_id2:
-        ausweis_rueckseite = st.file_uploader("Rückseite", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_hinten")
+        ausweis_rueckseite = st.file_uploader("Ausweis Rückseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_hinten")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # === DATENSCHUTZ-EINWILLIGUNG ===
@@ -382,10 +394,16 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
     datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Pflichtfelder-Validierung
+    # Pflichtfelder-Validierung (Inklusive des weiteren Fahrers, falls der Haken gesetzt ist!)
     pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
+    
+    if weitere_fahrer_vorhanden:
+        pflicht_wf = wf_nachname != "" and wf_vorname != "" and wf_geburtsdatum and wf_fs_datum
+    else:
+        pflicht_wf = True
+        
     pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
-                                 and pflicht_kennzeichen and datenschutz_akzeptiert)
+                                 and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
 
     if pflichtfelder_ausgefuellt:
         if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
@@ -400,6 +418,15 @@ if pin_eingabe in KUNDEN_DATENBANK and KUNDEN_DATENBANK[pin_eingabe].get("status
             if not os.path.exists(local_backup_path):
                 os.makedirs(local_backup_path)
 
+            # Formatierte Text-Vorlage mit den neuen Fahrerdaten (falls vorhanden!)
+            wf_text_block = "Nein"
+            if weitere_fahrer_vorhanden:
+                wf_text_block = f"""Ja
+  -> Name: {wf_nachname}
+  -> Vorname: {wf_vorname}
+  -> Geburtsdatum: {wf_geburtsdatum.strftime('%d.%m.%Y')}
+  -> Führerschein seit: {wf_fs_datum.strftime('%d.%m.%Y')}"""
+
             infotext = f"""=== KUNDENDATEN FÜR NAFI / COMPARIT ===
 Name: {name}
 Vorname: {vorname}
@@ -410,6 +437,8 @@ Kennzeichen: {kennzeichen}
 Fahrleistung: {fahrleistung} km/Jahr
 Aktueller KM-Stand: {km_stand} km
 Garage: {garage}
+----------------------------------------
+Weiterer Fahrer: {wf_text_block}
 ========================================"""
 
             with open(os.path.join(local_backup_path, "Kopier_Vorlage.txt"), "w", encoding="utf-8") as f:
@@ -418,7 +447,7 @@ Garage: {garage}
             # === ONEDRIVE HOCHLADEN-PROZESS ===
             if token:
                 with st.spinner("Daten werden sicher übertragen..."):
-                    # 1. ERSTELLT DIE CSV-DATEI BEIM ALLERERSTEN ABSENDEN IM HINTERGRUND!
+                    # 1. ERSTELLT DIE CSV-DATEI AUTOMATISCH IM HINTERGRUND
                     create_initial_csv_on_onedrive(token)
                     
                     # 2. Lädt die Kundendaten hoch (Mit automatischem Überschreibschutz!)
