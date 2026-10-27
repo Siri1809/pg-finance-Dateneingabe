@@ -24,7 +24,7 @@ PIN_SIMON = "Siri0921"
 PIN_CHEF = "legen_daer"
 
 # =========================================================================
-# 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
+# 🛠️ ALLE HILFS-FUNKTIONEN (Müssen ganz oben stehen)
 # =========================================================================
 
 def get_onedrive_token():
@@ -145,7 +145,7 @@ def save_database_to_onedrive(token, df):
 # ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
 # =========================================================================
 
-# Token und Datenbank laden
+# Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
@@ -198,18 +198,27 @@ if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
 # =========================================================================
-# 🏠 STREAMLIT OBERFLÄCHE (VISUELL)
+# 🏠 STREAMLIT OBERFLÄCHE & BRANDING (KONTRAST-EFFEKTE ZÄHMEN!)
 # =========================================================================
 
-# CSS (Unverändert!)
 st.markdown("""
     <style>
+    /* ========================================================================= */
+    /* MOBIL-CONTRAST OVERRIDE: Zwingt Handys zu sanften Grau-Blau Tönen          */
+    /* ========================================================================= */
+    
+    /* Deaktiviert das standardmäßig erzwungene, harte Design mobiler Browser */
+    html, body, [data-testid="stAppViewContainer"] {
+        color-scheme: light !important; /* Verhindert den erzwungenen Dark-Mode-Kontrast auf Smartphones */
+    }
+
     .stApp {
         background-color: #ffffff !important;
         background-image: none !important;
         color: #2d3748 !important;
         font-family: 'Varela Round', 'Varela', sans-serif !important;
     }
+    
     .main-title {
         font-family: 'Varela Round', sans-serif;
         color: #0b4aa0;
@@ -219,12 +228,14 @@ st.markdown("""
         margin-top: 10px;
         margin-bottom: 5px;
     }
+    
     .main-subtitle {
         text-align: center;
         color: #718096;
         font-size: 1.1rem;
         margin-bottom: 20px;
     }
+    
     .form-card {
         background-color: #ffffff;
         padding: 24px;
@@ -234,6 +245,7 @@ st.markdown("""
         margin-bottom: 25px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
     }
+    
     .card-header {
         color: #0b4aa0 !important;
         font-size: 1.35rem !important;
@@ -245,6 +257,12 @@ st.markdown("""
         padding-bottom: 8px !important;
         display: block !important;
     }
+    
+    /* ========================================================================= */
+    /* EINHEITLICHE RÄNDER FÜR ALLE EINGABEFELDER & MOBIL-KONTRAST KORREKTUREN    */
+    /* ========================================================================= */
+    
+    /* Gestaltet Texteingaben, Zahlenfelder UND das Datums-Eingabefeld exakt gleich */
     .stTextInput input, .stNumberInput input, .stDateInput input {
         background-color: #ffffff !important;
         color: #0b4aa0 !important;
@@ -256,20 +274,17 @@ st.markdown("""
         outline: none !important;
         box-shadow: none !important;
         transition: all 0.2s ease-in-out !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
     }
+    
     .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
         border: none !important;
         background-color: transparent !important;
         box-shadow: none !important;
     }
-    .stSelectbox div[role="button"], 
-    .stSelectbox div[data-baseweb="select"], 
-    .stSelectbox [data-baseweb="select"] > div {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
+    
+    /* Selectboxen: Zwingt den Rahmen auf das tragende Element und bereinigt den Handy-Kontrast */
     .stSelectbox [data-baseweb="select"] {
         background-color: #ffffff !important;
         border: 2px solid #00aeeb !important;
@@ -279,18 +294,79 @@ st.markdown("""
         box-shadow: none !important;
         outline: none !important;
         padding: 2px 4px !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
     }
+    
+    .stSelectbox div[role="button"], 
+    .stSelectbox div[data-baseweb="select"], 
+    .stSelectbox [data-baseweb="select"] > div {
+        border: none !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+    
     .stSelectbox span, .stSelectbox div {
         color: #0b4aa0 !important;
         font-weight: bold !important;
     }
+    
+    /* HOVER- & FOKUS-EFFEKTE (Wechselt zu Dunkelblau) */
     .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
         border-color: #0b4aa0 !important;
     }
+    
     .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
         border-color: #0b4aa0 !important;
         box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
     }
+
+    /* ========================================================================= */
+    /* HAKEN-BOXEN (CHECKBOXEN) MOBIL KORRIGIEREN                                */
+    /* ========================================================================= */
+    
+    /* Dämpft die Haken-Boxen von einem harten Schwarz auf ein edles Cyan-Blau ab */
+    span[data-baseweb="checkbox"] {
+        border-color: #00aeeb !important;
+        border-radius: 4px !important;
+    }
+    
+    span[data-baseweb="checkbox"] div {
+        background-color: #00aeeb !important;
+    }
+    
+    /* ========================================================================= */
+    /* PLUS- / MINUS-BUTTONS & SYMBOLE KORRIGIEREN                               */
+    /* ========================================================================= */
+    
+    /* Dämpft den erzwungenen hohen Mobil-Kontrast für alle SVGs (Dropdown-Pfeile, Icons) */
+    svg, 
+    [data-baseweb="icon"] svg, 
+    .stNumberInput button svg, 
+    [data-testid="InputInstruction"] {
+        fill: #718096 !important;
+        color: #718096 !important;
+    }
+
+    /* Macht die Plus/Minus-Tasten bei Zahlenfeldern dezent Hellgrau (ohne schwarze Ecken) */
+    .stNumberInput button {
+        background-color: #f7fafc !important;
+        border: 1px solid #cbd5e0 !important;
+        color: #718096 !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
+    }
+
+    .stNumberInput button:hover {
+        background-color: #e2e8f0 !important;
+        color: #0b4aa0 !important;
+    }
+
+    /* ========================================================================= */
+
     [data-testid="stFileUploaderDropzone"] {
         border: 2px dashed #00aeeb !important;
         background-color: #f7fafc !important;
@@ -299,6 +375,7 @@ st.markdown("""
         box-shadow: none !important;
         transition: all 0.3s ease !important;
     }
+    
     .stFileUploader button {
         background-color: #00aeeb !important;
         color: #ffffff !important;
@@ -309,16 +386,19 @@ st.markdown("""
         padding: 6px 14px !important;
         border-radius: 6px !important;
     }
+    
     .stAlert p, .stAlert span, .stAlert div {
         color: #1a1a1a !important;
         font-weight: bold !important;
     }
+    
     label {
         color: #0b4aa0 !important;
         font-weight: bold !important;
         font-size: 0.95rem !important;
         margin-bottom: 6px !important;
     }
+    
     div.stButton > button:first-child {
         background-color: #00aeeb !important;
         color: #ffffff !important;
@@ -333,6 +413,7 @@ st.markdown("""
         box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
         margin-bottom: 20px !important;
     }
+    
     .makler-label {
         font-weight: bold;
         color: #718096;
@@ -342,6 +423,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Logo & Überschrift laden (Immer sichtbar)
 LOGO_DATEINAME = "pg-finance_Logo.jpg"
 if os.path.exists(LOGO_DATEINAME):
     logo = Image.open(LOGO_DATEINAME)
@@ -360,7 +442,7 @@ st.markdown("""
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# KORREKTUR: Die Bereinigung erfolgt jetzt GARANTIERT erst nach der Erstellung der Variable 'pin_eingabe'!
+# Bereinigung der Benutzereingabe
 tipp_pin = str(pin_eingabe).strip()
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
