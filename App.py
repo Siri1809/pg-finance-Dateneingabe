@@ -24,7 +24,7 @@ PIN_SIMON = "Siri0921"
 PIN_CHEF = "legen_daer"
 
 # =========================================================================
-# 🛠️ ALLE HILFS-FUNKTIONEN (Müssen ganz oben stehen)
+# 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
 
 def get_onedrive_token():
@@ -141,10 +141,6 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
-# =========================================================================
-# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
-# =========================================================================
-
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
@@ -198,18 +194,14 @@ if PIN_CHEF not in KUNDEN_DATENBANK:
     KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
 
 # =========================================================================
-# 🏠 STREAMLIT OBERFLÄCHE & BRANDING (KONTRAST-EFFEKTE ZÄHMEN!)
+# 🏠 STREAMLIT OBERFLÄCHE & BRANDING (KONTRAST-EFFEKTE EXAKT GEZÄHMT!)
 # =========================================================================
 
 st.markdown("""
     <style>
-    /* ========================================================================= */
-    /* MOBIL-CONTRAST OVERRIDE: Zwingt Handys zu sanften Grau-Blau Tönen          */
-    /* ========================================================================= */
-    
-    /* Deaktiviert das standardmäßig erzwungene, harte Design mobiler Browser */
+    /* Globaler Light-Mode-Erzwinger für Smartphones */
     html, body, [data-testid="stAppViewContainer"] {
-        color-scheme: light !important; /* Verhindert den erzwungenen Dark-Mode-Kontrast auf Smartphones */
+        color-scheme: light !important;
     }
 
     .stApp {
@@ -262,7 +254,6 @@ st.markdown("""
     /* EINHEITLICHE RÄNDER FÜR ALLE EINGABEFELDER & MOBIL-KONTRAST KORREKTUREN    */
     /* ========================================================================= */
     
-    /* Gestaltet Texteingaben, Zahlenfelder UND das Datums-Eingabefeld exakt gleich */
     .stTextInput input, .stNumberInput input, .stDateInput input {
         background-color: #ffffff !important;
         color: #0b4aa0 !important;
@@ -276,6 +267,17 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
         -webkit-appearance: none !important;
         appearance: none !important;
+    }
+    
+    /* ========================================================================= */
+    /* KORREKTUR: GESPERRTE (DISABLED) FELDER AUF HANDYS LESBAR MACHEN           */
+    /* ========================================================================= */
+    .stTextInput input:disabled {
+        background-color: #f7fafc !important; /* Dezenter Grauton */
+        color: #0b4aa0 !important; /* Kräftiges Markenblau (absolut lesbar!) */
+        border-color: #cbd5e0 !important;
+        -webkit-text-fill-color: #0b4aa0 !important; /* Zwingt iOS/Safari zur blauen Schrift */
+        opacity: 1 !important; /* Deaktiviert das Verblassen auf Smartphones */
     }
     
     .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
@@ -312,7 +314,7 @@ st.markdown("""
         font-weight: bold !important;
     }
     
-    /* HOVER- & FOKUS-EFFEKTE (Wechselt zu Dunkelblau) */
+    /* HOVER- & FOKUS-EFFEKTE */
     .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
         border-color: #0b4aa0 !important;
     }
@@ -325,22 +327,21 @@ st.markdown("""
     /* ========================================================================= */
     /* HAKEN-BOXEN (CHECKBOXEN) MOBIL KORRIGIEREN                                */
     /* ========================================================================= */
-    
-    /* Dämpft die Haken-Boxen von einem harten Schwarz auf ein edles Cyan-Blau ab */
     span[data-baseweb="checkbox"] {
-        border-color: #00aeeb !important;
+        border: 2px solid #00aeeb !important; /* Dickerer Rand für perfekten Kontrast */
         border-radius: 4px !important;
+        background-color: #ffffff !important;
     }
     
-    span[data-baseweb="checkbox"] div {
+    /* Gestaltet den aktiven Haken-Hintergrund in Simons Marken-Blau */
+    span[data-baseweb="checkbox"][aria-checked="true"] {
         background-color: #00aeeb !important;
+        border-color: #00aeeb !important;
     }
     
     /* ========================================================================= */
     /* PLUS- / MINUS-BUTTONS & SYMBOLE KORRIGIEREN                               */
     /* ========================================================================= */
-    
-    /* Dämpft den erzwungenen hohen Mobil-Kontrast für alle SVGs (Dropdown-Pfeile, Icons) */
     svg, 
     [data-baseweb="icon"] svg, 
     .stNumberInput button svg, 
@@ -349,7 +350,6 @@ st.markdown("""
         color: #718096 !important;
     }
 
-    /* Macht die Plus/Minus-Tasten bei Zahlenfeldern dezent Hellgrau (ohne schwarze Ecken) */
     .stNumberInput button {
         background-color: #f7fafc !important;
         border: 1px solid #cbd5e0 !important;
@@ -363,6 +363,11 @@ st.markdown("""
     .stNumberInput button:hover {
         background-color: #e2e8f0 !important;
         color: #0b4aa0 !important;
+    }
+
+    /* Dropdown-Pfeil farblich perfekt dämpfen */
+    [data-baseweb="icon"] {
+        color: #718096 !important;
     }
 
     /* ========================================================================= */
