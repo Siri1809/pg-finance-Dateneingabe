@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import requests
+import random
 import pandas as pd
 from PIL import Image
 from io import BytesIO
@@ -21,10 +22,11 @@ TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
 # === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
-PIN_CHEF = "legen_daer"
+PIN_Patrick = "legen_daer"
+PIN_Julian = "legen_daer"
 
 # =========================================================================
-# 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
+# 🛠  ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
 
 def get_onedrive_token():
@@ -53,9 +55,11 @@ def create_initial_csv_on_onedrive(token):
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum,Kennzeichen,Fahrleistung,Kilometerstand,Garage,Finanzierung"
-            for i in range(1, 6):
-                base_cols += f",Fahrer_{i}_Nachname,Fahrer_{i}_Vorname,Fahrer_{i}_Geburtsdatum,Fahrer_{i}_Erwerbsdatum"
+            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum"
+            for auto in range(1, 4):
+                base_cols += f",Kennzeichen_{auto},Fahrleistung_{auto},Kilometerstand_{auto},Garage_{auto},Finanzierung_{auto}"
+                for fahrer in range(1, 6):
+                    base_cols += f",Auto_{auto}_Fahrer_{fahrer}_Nachname,Auto_{auto}_Fahrer_{fahrer}_Vorname,Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum,Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"
             base_cols += "\n"
             
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
@@ -141,14 +145,20 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
+# =========================================================================
+# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
+# =========================================================================
+
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle erforderlichen Spalten zu besitzen
-erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum", "Kennzeichen", "Fahrleistung", "Kilometerstand", "Garage", "Finanzierung"]
-for i in range(1, 6):
-    erforderliche_spalten += [f"Fahrer_{i}_Nachname", f"Fahrer_{i}_Vorname", f"Fahrer_{i}_Geburtsdatum", f"Fahrer_{i}_Erwerbsdatum"]
+# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher zu besitzen (3 Autos, 5 Fahrer pro Auto)
+erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
+for auto in range(1, 4):
+    erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
+    for fahrer in range(1, 6):
+        erforderliche_spalten += [f"Auto_{auto}_Fahrer_{fahrer}_Nachname", f"Auto_{auto}_Fahrer_{fahrer}_Vorname", f"Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum", f"Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"]
 
 for col in erforderliche_spalten:
     if col not in df_db.columns:
@@ -182,35 +192,29 @@ if not df_db.empty:
             "Familienstand": r.get("Familienstand", "Ledig") if pd.notna(r.get("Familienstand")) else "Ledig",
             "VN_Status": r.get("VN_Status", "Angestellter") if pd.notna(r.get("VN_Status")) else "Angestellter",
             "Wohneigentum": r.get("Wohneigentum", "Nein, zur Miete") if pd.notna(r.get("Wohneigentum")) else "Nein, zur Miete",
-            "Garage": r.get("Garage", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage")) else "Einzel-/Doppelgarage",
-            "Fahrleistung": r.get("Fahrleistung", 10000) if pd.notna(r.get("Fahrleistung")) else 10000,
-            "Kennzeichen": r.get("Kennzeichen", "") if pd.notna(r.get("Kennzeichen")) else ""
+            # KORREKTUR: Einzelne Autospalten-Lernwerte sichern
+            "Garage_1": r.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage_1")) else "Einzel-/Doppelgarage",
+            "Fahrleistung_1": r.get("Fahrleistung_1", 10000) if pd.notna(r.get("Fahrleistung_1")) else 10000,
+            "Kennzeichen_1": r.get("Kennzeichen_1", "") if pd.notna(r.get("Kennzeichen_1")) else ""
         }
 
 # Ergänzt die Master-PINs im Speicher-Fallback
-if PIN_SIMON not in KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK[PIN_SIMON] = {"nachname": "Seyschab", "vorname": "Simon"}
-if PIN_CHEF not in KUNDEN_DATENBANK:
-    KUNDEN_DATENBANK[PIN_CHEF] = {"nachname": "Grellner", "vorname": "Patrick"}
+for m_pin, m_name in {PIN_SIMON: "Simon Seyschab", PIN_Patrick: "Patrick Grellner", PIN_Julian: "Julian Müller"}.items():
+    if m_pin not in KUNDEN_DATENBANK:
+        KUNDEN_DATENBANK[m_pin] = {"nachname": m_name.split(" ")[1], "vorname": m_name.split(" ")[0]}
 
-# =========================================================================
-# 🏠 STREAMLIT OBERFLÄCHE & BRANDING (KONTRAST-EFFEKTE EXAKT GEZÄHMT!)
-# =========================================================================
-
+# CSS (Unverändert!)
 st.markdown("""
     <style>
-    /* Globaler Light-Mode-Erzwinger für Smartphones */
     html, body, [data-testid="stAppViewContainer"] {
         color-scheme: light !important;
     }
-
     .stApp {
         background-color: #ffffff !important;
         background-image: none !important;
         color: #2d3748 !important;
         font-family: 'Varela Round', 'Varela', sans-serif !important;
     }
-    
     .main-title {
         font-family: 'Varela Round', sans-serif;
         color: #0b4aa0;
@@ -220,14 +224,12 @@ st.markdown("""
         margin-top: 10px;
         margin-bottom: 5px;
     }
-    
     .main-subtitle {
         text-align: center;
         color: #718096;
         font-size: 1.1rem;
         margin-bottom: 20px;
     }
-    
     .form-card {
         background-color: #ffffff;
         padding: 24px;
@@ -237,7 +239,6 @@ st.markdown("""
         margin-bottom: 25px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
     }
-    
     .card-header {
         color: #0b4aa0 !important;
         font-size: 1.35rem !important;
@@ -249,11 +250,6 @@ st.markdown("""
         padding-bottom: 8px !important;
         display: block !important;
     }
-    
-    /* ========================================================================= */
-    /* EINHEITLICHE RÄNDER FÜR ALLE EINGABEFELDER & MOBIL-KONTRAST KORREKTUREN    */
-    /* ========================================================================= */
-    
     .stTextInput input, .stNumberInput input, .stDateInput input {
         background-color: #ffffff !important;
         color: #0b4aa0 !important;
@@ -268,25 +264,18 @@ st.markdown("""
         -webkit-appearance: none !important;
         appearance: none !important;
     }
-    
-    /* ========================================================================= */
-    /* KORREKTUR: GESPERRTE (DISABLED) FELDER AUF HANDYS LESBAR MACHEN           */
-    /* ========================================================================= */
     .stTextInput input:disabled {
-        background-color: #f7fafc !important; /* Dezenter Grauton */
-        color: #0b4aa0 !important; /* Kräftiges Markenblau (absolut lesbar!) */
+        background-color: #f7fafc !important;
+        color: #0b4aa0 !important;
         border-color: #cbd5e0 !important;
-        -webkit-text-fill-color: #0b4aa0 !important; /* Zwingt iOS/Safari zur blauen Schrift */
-        opacity: 1 !important; /* Deaktiviert das Verblassen auf Smartphones */
+        -webkit-text-fill-color: #0b4aa0 !important;
+        opacity: 1 !important;
     }
-    
     .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"], .stDateInput div[data-baseweb="input"] {
         border: none !important;
         background-color: transparent !important;
         box-shadow: none !important;
     }
-    
-    /* Selectboxen: Zwingt den Rahmen auf das tragende Element und bereinigt den Handy-Kontrast */
     .stSelectbox [data-baseweb="select"] {
         background-color: #ffffff !important;
         border: 2px solid #00aeeb !important;
@@ -299,57 +288,39 @@ st.markdown("""
         -webkit-appearance: none !important;
         appearance: none !important;
     }
-    
     .stSelectbox div[role="button"], 
     .stSelectbox div[data-baseweb="select"], 
-    .stSelectbox [data-baseweb="select"] > div {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    
-    .stSelectbox span, .stSelectbox div {
+    .stSelectbox [data-baseweb="select"] > div,
+    .stSelectbox span,
+    .stSelectbox div {
         color: #0b4aa0 !important;
         font-weight: bold !important;
+        -webkit-text-fill-color: #0b4aa0 !important;
     }
-    
-    /* HOVER- & FOKUS-EFFEKTE */
+    ul[role="listbox"], li[role="option"] {
+        background-color: #ffffff !important;
+        color: #0b4aa0 !important;
+    }
     .stTextInput input:hover, .stNumberInput input:hover, .stSelectbox [data-baseweb="select"]:hover, .stDateInput input:hover {
         border-color: #0b4aa0 !important;
     }
-    
     .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox [data-baseweb="select"]:focus, .stDateInput input:focus {
         border-color: #0b4aa0 !important;
         box-shadow: 0 0 0 3px rgba(11, 74, 160, 0.2) !important;
     }
-
-    /* ========================================================================= */
-    /* HAKEN-BOXEN (CHECKBOXEN) MOBIL KORRIGIEREN                                */
-    /* ========================================================================= */
     span[data-baseweb="checkbox"] {
-        border: 2px solid #00aeeb !important; /* Dickerer Rand für perfekten Kontrast */
+        border: 2px solid #00aeeb !important;
         border-radius: 4px !important;
         background-color: #ffffff !important;
     }
-    
-    /* Gestaltet den aktiven Haken-Hintergrund in Simons Marken-Blau */
     span[data-baseweb="checkbox"][aria-checked="true"] {
         background-color: #00aeeb !important;
         border-color: #00aeeb !important;
     }
-    
-    /* ========================================================================= */
-    /* PLUS- / MINUS-BUTTONS & SYMBOLE KORRIGIEREN                               */
-    /* ========================================================================= */
-    svg, 
-    [data-baseweb="icon"] svg, 
-    .stNumberInput button svg, 
-    [data-testid="InputInstruction"] {
+    svg, [data-baseweb="icon"] svg, .stNumberInput button svg, [data-testid="InputInstruction"] {
         fill: #718096 !important;
         color: #718096 !important;
     }
-
     .stNumberInput button {
         background-color: #f7fafc !important;
         border: 1px solid #cbd5e0 !important;
@@ -359,19 +330,13 @@ st.markdown("""
         -webkit-appearance: none !important;
         appearance: none !important;
     }
-
     .stNumberInput button:hover {
         background-color: #e2e8f0 !important;
         color: #0b4aa0 !important;
     }
-
-    /* Dropdown-Pfeil farblich perfekt dämpfen */
     [data-baseweb="icon"] {
         color: #718096 !important;
     }
-
-    /* ========================================================================= */
-
     [data-testid="stFileUploaderDropzone"] {
         border: 2px dashed #00aeeb !important;
         background-color: #f7fafc !important;
@@ -380,7 +345,6 @@ st.markdown("""
         box-shadow: none !important;
         transition: all 0.3s ease !important;
     }
-    
     .stFileUploader button {
         background-color: #00aeeb !important;
         color: #ffffff !important;
@@ -391,19 +355,16 @@ st.markdown("""
         padding: 6px 14px !important;
         border-radius: 6px !important;
     }
-    
     .stAlert p, .stAlert span, .stAlert div {
         color: #1a1a1a !important;
         font-weight: bold !important;
     }
-    
     label {
         color: #0b4aa0 !important;
         font-weight: bold !important;
         font-size: 0.95rem !important;
         margin-bottom: 6px !important;
     }
-    
     div.stButton > button:first-child {
         background-color: #00aeeb !important;
         color: #ffffff !important;
@@ -418,7 +379,6 @@ st.markdown("""
         box-shadow: 0 4px 14px rgba(0, 174, 235, 0.2) !important;
         margin-bottom: 20px !important;
     }
-    
     .makler-label {
         font-weight: bold;
         color: #718096;
@@ -449,10 +409,11 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # Bereinigung der Benutzereingabe
 tipp_pin = str(pin_eingabe).strip()
+# KORREKTE ANPASSUNG: Verhindert, dass die Wort-Pins wie "Siri0921" mit Nullen aufgefüllt werden!
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
 
-is_master_pin = tipp_pin in [PIN_SIMON, PIN_CHEF]
+is_master_pin = tipp_pin in [PIN_SIMON, PIN_Patrick, PIN_Julian]
 is_valid_customer = tipp_pin in KUNDEN_DATENBANK
 weitere_fahrer_vorhanden = False # NameError Schutz
 
@@ -460,7 +421,7 @@ weitere_fahrer_vorhanden = False # NameError Schutz
 if is_master_pin or is_valid_customer:
     
     # =========================================================================
-    # 📋 MODUS A: MAKLER-MODUS (NUR FÜR SIMON & PATRICK!)
+    # 📋 MODUS A: MAKLER-MODUS (NUR SIMON, PATRICK & JULIAN!)
     # =========================================================================
     if is_master_pin:
         st.success(f"🔓 Willkommen im Makler-Verwaltungs-Modus!")
@@ -474,11 +435,13 @@ if is_master_pin or is_valid_customer:
             with st.form("kunden_anlegen_form", clear_on_submit=True):
                 new_n = st.text_input("Nachname des Kunden *")
                 new_v = st.text_input("Vorname des Kunden *")
-                new_pin = st.text_input("Gewünschte PIN (z.B. PG-123) *")
                 
                 if st.form_submit_button("🚀 Kunden-Zugang erstellen"):
-                    if new_n and new_v and new_pin:
-                        safe_new_pin = str(new_pin).strip()
+                    if new_n and new_v:
+                        # 1. Generiert Initialen + 5-stellige Zufallszahl (z.B. SS-74839)
+                        initialen = (str(new_v)[0] + str(new_n)[0]).upper()
+                        zufallszahl = random.randint(10000, 99999)
+                        safe_new_pin = f"{initialen}-{zufallszahl}"
                         
                         neuer_k_row = {col: "" for col in df_db.columns}
                         neuer_k_row["PIN"] = safe_new_pin
@@ -496,25 +459,37 @@ if is_master_pin or is_valid_customer:
                         
                         st.write("---")
                         st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://kfz-tarif-helfer.streamlit.app\n\n🔑 Deine persönliche PIN lautet: *{safe_new_pin}*"
+                        # KORREKTE ANPASSUNG: Sternchen (*) und alten Link restlos entfernt!
+                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://pg-finance-dateneingabe.streamlit.app\n\n🔑 Deine persönliche PIN lautet: {safe_new_pin}"
                         st.code(wa_text, language="text")
                     else:
-                        st.error("Bitte alle Felder ausfüllen!")
+                        st.error("Bitte Nachnamen und Vornamen ausfüllen!")
                         
         # --- REITER 2: KUNDENDATEN KOPIEREN ---
         else:
             st.markdown("<h3 style='color:#0b4aa0;'>📋 Kundendaten-Manager</h3>", unsafe_allow_html=True)
             st.write("Wählen Sie einen Kunden aus, um alle eingetragenen Daten komfortabel zu kopieren.")
             
-            kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_CHEF])].copy()
+            kunden_df = df_db[~df_db["PIN"].isin([PIN_SIMON, PIN_Patrick, PIN_Julian])].copy()
             
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
-                kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
-                kunden_df["KZ_Anzeige"] = kunden_df["Kennzeichen"].apply(lambda x: x if x != "" else "Noch kein Auto eingereicht")
-                kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"] + " (" + kunden_df["KZ_Anzeige"] + ")"
+                kunden_anzeige_liste = []
+                for _, r_k in kunden_df.iterrows():
+                    n_v_name = f"{r_k['Nachname']}, {r_k['Vorname']}"
+                    
+                    autos_liste = []
+                    for k_idx in range(1, 4):
+                        kz_v = r_k.get(f"Kennzeichen_{k_idx}", "")
+                        if pd.notna(kz_v) and str(kz_v).strip() != "":
+                            autos_liste.append(str(kz_v).strip())
+                            
+                    autos_str = " & ".join(autos_liste) if autos_liste else "Noch kein Auto eingereicht"
+                    kunden_anzeige_liste.append(f"{n_v_name} ({autos_str})")
+                
+                kunden_df["Anzeige_Name"] = kunden_anzeige_liste
                 
                 dropdown_optionen = ["-- Bitte wählen Sie einen Kunden aus --"] + list(kunden_df["Anzeige_Name"].unique())
                 ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", dropdown_optionen, index=0)
@@ -522,13 +497,22 @@ if is_master_pin or is_valid_customer:
                 if ausgewaehlter_kunden_name and ausgewaehlter_kunden_name != "-- Bitte wählen Sie einen Kunden aus --":
                     nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
                     vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
-                    kunden_daten = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)]
+                    k_row = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)].iloc[0]
                     
-                    if len(kunden_daten) > 1:
-                        auto_auswahl = st.selectbox("Fahrzeug wählen:", kunden_daten["Kennzeichen"].unique())
-                        k_row = kunden_daten[kunden_daten["Kennzeichen"] == auto_auswahl].iloc[0]
+                    existierende_autos = []
+                    for k_idx in range(1, 4):
+                        kz_v = k_row.get(f"Kennzeichen_{k_idx}", "")
+                        if pd.notna(kz_v) and str(kz_v).strip() != "":
+                            existierende_autos.append((k_idx, str(kz_v).strip()))
+                            
+                    if existierende_autos:
+                        auto_options = [f"Fahrzeug {idx}: {kz}" for idx, kz in existierende_autos]
+                        ausgewaehltes_auto_full = st.selectbox("Fahrzeug zum Kopieren wählen:", auto_options)
+                        ausgewaehltes_auto_index = int(ausgewaehltes_auto_full.split("Fahrzeug ")[1].split(":")[0])
+                        kz_sel = ausgewaehltes_auto_full.split(": ")[1]
                     else:
-                        k_row = kunden_daten.iloc[0]
+                        ausgewaehltes_auto_index = 1
+                        kz_sel = "Nicht angegeben"
                     
                     st.write("")
                     st.markdown(f"### Stammdaten von {k_row['Vorname']} {k_row['Nachname']}")
@@ -555,32 +539,32 @@ if is_master_pin or is_valid_customer:
                     st.code(str(k_row.get("Wohneigentum", "Nicht angegeben")), language="text")
                     
                     st.write("")
-                    st.markdown("### Fahrzeugdaten")
+                    st.markdown(f"### Fahrzeugdaten (Fahrzeug {ausgewaehltes_auto_index})")
                     
                     st.markdown("<span class='makler-label'>Amtliches Kennzeichen</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Kennzeichen", "Nicht angegeben")), language="text")
+                    st.code(str(k_row.get(f"Kennzeichen_{ausgewaehltes_auto_index}", "Nicht angegeben")), language="text")
                     
                     st.markdown("<span class='makler-label'>Jährliche Fahrleistung</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Fahrleistung", "Nicht angegeben")), language="text")
+                    st.code(str(k_row.get(f"Fahrleistung_{ausgewaehltes_auto_index}", "Nicht angegeben")), language="text")
                     
                     st.markdown("<span class='makler-label'>Aktueller Kilometerstand</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Kilometerstand", "Nicht angegeben")), language="text")
+                    st.code(str(k_row.get(f"Kilometerstand_{ausgewaehltes_auto_index}", "Nicht angegeben")), language="text")
                     
                     st.markdown("<span class='makler-label'>Abstellort (Garage)</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Garage", "Nicht angegeben")), language="text")
+                    st.code(str(k_row.get(f"Garage_{ausgewaehltes_auto_index}", "Nicht angegeben")), language="text")
                     
                     st.markdown("<span class='makler-label'>Finanzierungsart des Fahrzeugs</span>", unsafe_allow_html=True)
-                    st.code(str(k_row.get("Finanzierung", "Nicht angegeben")), language="text")
+                    st.code(str(k_row.get(f"Finanzierung_{ausgewaehltes_auto_index}", "Nicht angegeben")), language="text")
                     
                     st.write("")
                     st.markdown("### Weitere Fahrer")
                     for j in range(1, 6):
-                        f_n = k_row.get(f"Fahrer_{j}_Nachname")
-                        f_v = k_row.get(f"Fahrer_{j}_Vorname")
+                        f_n = k_row.get(f"Auto_{ausgewaehltes_auto_index}_Fahrer_{j}_Nachname")
+                        f_v = k_row.get(f"Auto_{ausgewaehltes_auto_index}_Fahrer_{j}_Vorname")
                         if pd.notna(f_n) and str(f_n).strip() != "":
                             st.markdown(f"<span class='makler-label'>Fahrer {j} (Name / Geburtsdatum / Führerschein)</span>", unsafe_allow_html=True)
-                            f_geb_raw = k_row.get(f"Fahrer_{j}_Geburtsdatum", "")
-                            f_fs_raw = k_row.get(f"Fahrer_{j}_Erwerbsdatum", "")
+                            f_geb_raw = k_row.get(f"Auto_{ausgewaehltes_auto_index}_Fahrer_{j}_Geburtsdatum", "")
+                            f_fs_raw = k_row.get(f"Auto_{ausgewaehltes_auto_index}_Fahrer_{j}_Erwerbsdatum", "")
                             st.code(f"{f_v} {f_n} (Geb: {f_geb_raw}, FS: {f_fs_raw})", language="text")
                 else:
                     st.info("Bitte wählen Sie einen Kunden aus der Liste aus, um seine Daten einzusehen.")
@@ -592,6 +576,7 @@ if is_master_pin or is_valid_customer:
     # =========================================================================
     else:
         k_info = KUNDEN_DATENBANK[tipp_pin]
+        k_row_db = df_db[df_db["PIN"] == tipp_pin].iloc[0]
         kunden_nachname = k_info["nachname"]
         kunden_vorname = k_info["vorname"]
         
@@ -600,10 +585,45 @@ if is_master_pin or is_valid_customer:
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
-        db_garage = k_info.get("Garage", "Einzel-/Doppelgarage") if pd.notna(k_info.get("Garage")) else "Einzel-/Doppelgarage"
-        db_fahrleistung = int(k_info.get("Fahrleistung", 10000)) if (pd.notna(k_info.get("Fahrleistung")) and str(k_info.get("Fahrleistung")).isdigit()) else 10000
+        
+        # KORREKTUR: Zieht die Fahrzeug-Lernwerte exakt und absturzsicher aus der Datenbank!
+        db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
+        db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
+        
+        belegte_autos = []
+        for a_idx in range(1, 4):
+            kz_val = k_row_db.get(f"Kennzeichen_{a_idx}", "")
+            if pd.notna(kz_val) and str(kz_val).strip() != "":
+                belegte_autos.append((a_idx, str(kz_val).strip()))
+                
+        auto_index_to_write = 1
+        is_editing_existing = False
+        
+        if belegte_autos:
+            st.markdown("<h3 style='color:#0b4aa0;'>🚗 Ihr Fahrzeug-Portal</h3>", unsafe_allow_html=True)
+            st.write("Sie haben bereits registrierte Fahrzeuge in unserem System:")
+            
+            auto_portal_optionen = [f"Fahrzeug {idx} bearbeiten ({kz})" for idx, kz in belegte_autos]
+            if len(belegte_autos) < 3:
+                auto_portal_optionen.append("➕ Ein weiteres Fahrzeug hinzufügen")
+                
+            auswahl_portal = st.radio("Was möchten Sie tun?", auto_portal_optionen)
+            
+            if "Fahrzeug" in auswahl_portal:
+                is_editing_existing = True
+                auto_index_to_write = int(auswahl_portal.split("Fahrzeug ")[1].split(" bearbeiten")[0])
+                st.info(f"Sie bearbeiten aktuell das Fahrzeug {auto_index_to_write} mit dem Kennzeichen {k_row_db[f'Kennzeichen_{auto_index_to_write}']}.")
+                
+                db_garage = k_row_db.get(f"Garage_{auto_index_to_write}", "Einzel-/Doppelgarage")
+                db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) else 10000
+            else:
+                is_editing_existing = False
+                auto_index_to_write = len(belegte_autos) + 1
+                st.info(f"Tragen Sie hier die Daten für Ihr zusätzliches Fahrzeug {auto_index_to_write} ein. Ihre persönlichen Daten werden automatisch übernommen!")
+        
+        st.write("")
 
         # === KARTE 1: PERSÖNLICHE DATEN ===
         st.markdown("""
@@ -657,6 +677,8 @@ if is_master_pin or is_valid_customer:
         with col_kz1:
             if neufahrzeug:
                 kennzeichen = st.text_input("Amtliches Kennzeichen", value="NEUFAHRZEUG", disabled=True)
+            elif is_editing_existing:
+                kennzeichen = st.text_input("Amtliches Kennzeichen *", value=k_row_db[f"Kennzeichen_{auto_index_to_write}"], disabled=True)
             else:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
 
@@ -809,49 +831,35 @@ Weitere Fahrer: {wf_text_for_doc}
                         
                         # === LERNENDER DATENBANK-PROZESS ===
                         if not df_db.empty:
-                            match_auto = df_db[(df_db["PIN"] == str(pin_eingabe)) & (df_db["Kennzeichen"] == str(kennzeichen))]
-                            match_empty_stamm = df_db[(df_db["PIN"] == str(pin_eingabe)) & (df_db["Kennzeichen"].isna() | (df_db["Kennzeichen"] == ""))]
+                            idx = df_db[df_db["PIN"] == str(pin_eingabe)].index[0]
                             
-                            neue_zeile = {
-                                "PIN": str(pin_eingabe),
-                                "Vorname": str(vorname),
-                                "Nachname": str(name),
-                                "Weitere_Vornamen": str(weitere_vornamen),
-                                "Geburtsort": str(geburtsort),
-                                "Familienstand": str(familienstand),
-                                "VN_Status": str(vn_status),
-                                "Wohneigentum": str(wohneigentum),
-                                "Kennzeichen": str(kennzeichen),
-                                "Fahrleistung": int(fahrleistung),
-                                "Kilometerstand": int(km_stand),
-                                "Garage": str(garage),
-                                "Finanzierung": str(finanzierungsart)
-                            }
+                            df_db.at[idx, "Vorname"] = str(vorname)
+                            df_db.at[idx, "Nachname"] = str(name)
+                            df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
+                            df_db.at[idx, "Geburtsort"] = str(geburtsort)
+                            df_db.at[idx, "Familienstand"] = str(familienstand)
+                            df_db.at[idx, "VN_Status"] = str(vn_status)
+                            df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
+                            
+                            df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
+                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = int(fahrleistung)
+                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = int(km_stand)
+                            df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
+                            df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
                             
                             for j in range(1, 6):
                                 if j <= len(weitere_fahrer_daten_liste):
                                     f_data = weitere_fahrer_daten_liste[j-1]
-                                    neue_zeile[f"Fahrer_{j}_Nachname"] = f_data["nachname"]
-                                    neue_zeile[f"Fahrer_{j}_Vorname"] = f_data["vorname"]
-                                    neue_zeile[f"Fahrer_{j}_Geburtsdatum"] = f_data["geburtsdatum"]
-                                    neue_zeile[f"Fahrer_{j}_Erwerbsdatum"] = f_data["erwerbsdatum"]
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = f_data["nachname"]
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = f_data["vorname"]
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = f_data["geburtsdatum"]
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = f_data["erwerbsdatum"]
                                 else:
-                                    neue_zeile[f"Fahrer_{j}_Nachname"] = ""
-                                    neue_zeile[f"Fahrer_{j}_Vorname"] = ""
-                                    neue_zeile[f"Fahrer_{j}_Geburtsdatum"] = ""
-                                    neue_zeile[f"Fahrer_{j}_Erwerbsdatum"] = ""
-                            
-                            if not match_auto.empty:
-                                idx = match_auto.index[0]
-                                for col, val in neue_zeile.items():
-                                    df_db.at[idx, col] = val
-                            elif not match_empty_stamm.empty:
-                                idx = match_empty_stamm.index[0]
-                                for col, val in neue_zeile.items():
-                                    df_db.at[idx, col] = val
-                            else:
-                                df_db = pd.concat([df_db, pd.DataFrame([neue_zeile])], ignore_index=True)
-                                
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = ""
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = ""
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = ""
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = ""
+                                    
                             save_database_to_onedrive(token, df_db)
                         
                     st.balloons()
