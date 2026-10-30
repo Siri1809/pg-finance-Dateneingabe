@@ -505,8 +505,9 @@ if is_master_pin or is_valid_customer:
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
+                kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
-                # KORREKTE ANPASSUNG: Entfernt "Noch kein Auto eingereicht" und zeigt NUR die Vor- und Nachnamen der Kunden an! (Wunsch 3 gelöst!)
+                # KORREKTUR: Zeigt NUR den Vor- und Nachnamen der Kunden an! (Wunsch 3 gelöst)
                 kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"]
                 
                 dropdown_optionen = ["-- Bitte wählen Sie einen Kunden aus --"] + list(kunden_df["Anzeige_Name"].unique())
@@ -517,7 +518,6 @@ if is_master_pin or is_valid_customer:
                     vorname_sel = ausgewaehlter_kunden_name.split(", ")[1]
                     k_row = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)].iloc[0]
                     
-                    # Ermittelt alle existierenden Autos dieses spezifischen Kunden
                     existierende_autos = []
                     for k_idx in range(1, 4):
                         kz_v = k_row.get(f"Kennzeichen_{k_idx}", "")
@@ -604,10 +604,12 @@ if is_master_pin or is_valid_customer:
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
+        
+        db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
+        db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
         
-        # Multicar-Ermittlung
         belegte_autos = []
         for a_idx in range(1, 4):
             kz_val = k_row_db.get(f"Kennzeichen_{a_idx}", "")
@@ -616,10 +618,6 @@ if is_master_pin or is_valid_customer:
                 
         auto_index_to_write = 1
         is_editing_existing = False
-        
-        # Standard-Lernwerte für das Fahrzeug
-        db_garage = "Einzel-/Doppelgarage"
-        db_fahrleistung = 10000
         
         if belegte_autos:
             st.markdown("<h3 style='color:#0b4aa0;'>🚗 Ihr Fahrzeug-Portal</h3>", unsafe_allow_html=True)
@@ -636,7 +634,7 @@ if is_master_pin or is_valid_customer:
                 auto_index_to_write = int(auswahl_portal.split("Fahrzeug ")[1].split(" bearbeiten")[0])
                 st.info(f"Sie bearbeiten aktuell das Fahrzeug {auto_index_to_write} mit dem Kennzeichen {k_row_db[f'Kennzeichen_{auto_index_to_write}']}.")
                 
-                # KORREKTUR: Liest die Fahrleistung und die Garage des AKTUELL ausgewählten Fahrzeugs korrekt aus (Wunsch 1 gelöst!)
+                # KORREKTUR: Liest die Fahrleistung des AKTUELL ausgewählten Fahrzeugs fehlerfrei aus! (Wunsch 1 gelöst)
                 db_garage = k_row_db.get(f"Garage_{auto_index_to_write}", "Einzel-/Doppelgarage")
                 db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if (pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) and str(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")).strip().isdigit()) else 10000
             else:
@@ -703,7 +701,7 @@ if is_master_pin or is_valid_customer:
             else:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
 
-        # KORREKTE ANPASSUNG: Macht Fahrzeugschein & Police beim Editieren eines bestehenden Autos optional! (Wunsch 2 gelöst!)
+        # KORREKTE ANPASSUNG: Fahrzeugschein & Police beim Editieren eines bestehenden Autos optional
         if is_editing_existing:
             fahrzeugschein = st.file_uploader("Fahrzeugschein aktualisieren (Optional)", type=["pdf", "png", "jpg", "jpeg"])
         else:
@@ -711,18 +709,18 @@ if is_master_pin or is_valid_customer:
             
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # === KARTE 3: WEITERE FAHRER (Mit automatischem Voraussortieren beim Editieren!) ===
+        # === KARTE 3: WEITERE FAHRER (Voraussortieren & KORREKTUR: Keine Pflichtfelder mehr!) ===
         st.markdown("""
             <div class="form-card">
                 <span class="card-header">👥 Weitere Fahrer</span>
         """, unsafe_allow_html=True)
         
-        # KORREKTUR: Ermittelt, ob es bereits verzeichnete Fahrer für dieses spezielle Auto gibt! (Wunsch 1 gelöst!)
+        # Holt die Fahrerdaten aus der OneDrive-Tabelle
         voraus_fahrer_daten = []
         for f_idx in range(1, 6):
             f_n_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Nachname", "")
             f_v_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Vorname", "")
-            if pd.notna(f_n_db) and str(f_n_db).strip() != "":
+            if pd.notna(f_n_db) and str(f_n_db).strip() != "" and str(f_n_db).strip() != "nan":
                 f_geb_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Geburtsdatum", "01.01.1995")
                 f_fs_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Erwerbsdatum", "01.01.2013")
                 voraus_fahrer_daten.append({
@@ -732,7 +730,6 @@ if is_master_pin or is_valid_customer:
                     "fs": f_fs_db
                 })
                 
-        # Wenn bereits Fahrer existieren, setzen wir die Checkbox und den Zähler automatisch auf "True"!
         default_wf_check = True if voraus_fahrer_daten else False
         weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=default_wf_check)
         weitere_fahrer_daten_liste = []
@@ -751,7 +748,7 @@ if is_master_pin or is_valid_customer:
             for i in range(st.session_state.anzahl_fahrer):
                 st.markdown(f"#### 👤 Fahrer {i+1}")
                 
-                # Liest die vorausgefüllten Daten für den jeweiligen Fahrer aus der Schleife
+                # KORREKTUR: Die Felder für den weiteren Fahrer haben KEINE Sternchen (*) mehr und sind OPTIONAL! (Wunsch 2 gelöst)
                 v_n_val = voraus_fahrer_daten[i]["nachname"] if i < len(voraus_fahrer_daten) else ""
                 v_v_val = voraus_fahrer_daten[i]["vorname"] if i < len(voraus_fahrer_daten) else ""
                 
@@ -764,12 +761,13 @@ if is_master_pin or is_valid_customer:
                 
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
-                    wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", value=v_n_val, key=f"wf_n_{i}")
-                    wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", value=v_v_val, key=f"wf_v_{i}")
+                    wf_n = st.text_input(f"Nachname (Fahrer {i+1})", value=v_n_val, key=f"wf_n_{i}")
+                    wf_v = st.text_input(f"Vorname (Fahrer {i+1})", value=v_v_val, key=f"wf_v_{i}")
                 with col_d2:
-                    wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=v_geb_val, key=f"wf_geb_{i}")
-                    wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=v_fs_val, key=f"wf_fs_{i}")
+                    wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1})", min_value=date(1930, 1, 1), max_value=date.today(), value=v_geb_val, key=f"wf_geb_{i}")
+                    wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1})", min_value=date(1948, 1, 1), max_value=date.today(), value=v_fs_val, key=f"wf_fs_{i}")
                 
+                # Fügt den Fahrer nur zur OneDrive-Liste hinzu, wenn Name und Vorname ausgefüllt wurden (da optional!)
                 if wf_n and wf_v:
                     weitere_fahrer_daten_liste.append({
                         "id": i + 1,
@@ -796,7 +794,7 @@ if is_master_pin or is_valid_customer:
         """, unsafe_allow_html=True)
         st.info("💡 Dokumente oder Fotos können Sie ganz einfach direkt mit Ihrer Smartphone-Kamera aufnehmen.")
         
-        # KORREKTUR: Police ist beim Bearbeiten eines bestehenden Autos ebenfalls optional! (Wunsch 2 gelöst!)
+        # KORREKTUR: Police beim Bearbeiten optional!
         if is_editing_existing:
             police = st.file_uploader("Letzte Versicherungspolice aktualisieren (Optional)", type=["pdf", "png", "jpg", "jpeg"])
         else:
@@ -822,12 +820,10 @@ if is_master_pin or is_valid_customer:
 
         # Pflichtfelder-Validierung (Fahrzeugschein, Police beim Editieren optional!)
         pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
-        if weitere_fahrer_vorhanden:
-            pflicht_wf = len(weitere_fahrer_daten_liste) == st.session_state.anzahl_fahrer
-        else:
-            pflicht_wf = True
+        
+        # KORREKTE ANPASSUNG: Weitere Fahrer sind KEINE Pflichtfelder mehr! (Wunsch 2 gelöst!)
+        pflicht_wf = True 
             
-        # KORREKTUR: Wenn der Kunde editiert, müssen Fahrzeugschein und Police nicht zwingend hochgeladen werden!
         if is_editing_existing:
             pflicht_dateien = True
         else:
