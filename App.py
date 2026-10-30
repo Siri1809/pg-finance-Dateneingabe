@@ -3,6 +3,9 @@ import os
 import requests
 import random
 import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from PIL import Image
 from io import BytesIO
 from datetime import datetime, date
@@ -20,14 +23,53 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
+# === 🔑 E-MAIL BENACHRICHTIGUNGEN (Empfänger-Liste) ===
+# Hier können Sie steuern, wer bei einer neuen Dateneingabe benachrichtigt wird!
+EMAIL_SIMON = "s.seyschab@pg-finance.de"
+EMAIL_PATRICK = "p.grellner@pg-finance.de" # Platzhalter für Patrick
+EMAIL_JULIAN = "j.striegel@pg-finance.de"   # Platzhalter für Julian
+
 # === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
 PIN_Patrick = "legen_daer"
 PIN_Julian = "legen_daer"
 
 # =========================================================================
-# 🛠  ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
+# 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
+
+def send_notification_email(customer_name, safe_kz, infotext):
+    """Verschickt eine automatische Benachrichtigung an das Maklerbüro."""
+    try:
+        # Lädt die E-Mail-Zugangsdaten sicher aus dem Streamlit-Tresor
+        smtp_server = st.secrets["email"]["smtp_server"]
+        smtp_port = int(st.secrets["email"]["smtp_port"])
+        smtp_user = st.secrets["email"]["smtp_user"]
+        smtp_password = st.secrets["email"]["smtp_password"]
+        
+        # Erstellt die E-Mail
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        # Aktuell geht die Mail an Sie (Simon). Sie können hier ganz einfach weitere Empfänger einpflegen!
+        msg['To'] = EMAIL_SIMON 
+        msg['Subject'] = f"🚗 Neue Datenerfassung: {customer_name} ({safe_kz})"
+        
+        body = f"""Hallo Team,\n\nes wurden soeben neue Tarifrechner-Daten eingereicht.\n\n=== DATEN FÜR NAFI / COMPARIT ===\n{infotext}\n\n💡 Alle hochgeladenen Dokumente und Fotos liegen sicher sortiert in Ihrem OneDrive-Ordner:\n'pg_finance_Dateneingabe/{customer_name}/{safe_kz}/'\n\nBeste Grüße,\nIhr automatisches Datenerfassungs-Formular"""
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Verbindet sich mit dem Postausgangsserver (SMTP) und schickt die Mail ab
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+        else:
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, [EMAIL_SIMON], msg.as_string())
+        server.quit()
+    except Exception as e:
+        # Falls die E-Mail fehlschlägt, blockieren wir nicht den Kundenprozess, sondern protokollieren den Fehler leise
+        pass
 
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
@@ -153,7 +195,7 @@ def save_database_to_onedrive(token, df):
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher zu besitzen (3 Autos, 5 Fahrer pro Auto)
+# Zwingt den DataFrame, alle erforderlichen Spalten zu besitzen (3 Autos, 5 Fahrer pro Auto)
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
@@ -192,18 +234,17 @@ if not df_db.empty:
             "Familienstand": r.get("Familienstand", "Ledig") if pd.notna(r.get("Familienstand")) else "Ledig",
             "VN_Status": r.get("VN_Status", "Angestellter") if pd.notna(r.get("VN_Status")) else "Angestellter",
             "Wohneigentum": r.get("Wohneigentum", "Nein, zur Miete") if pd.notna(r.get("Wohneigentum")) else "Nein, zur Miete",
-            # KORREKTUR: Einzelne Autospalten-Lernwerte sichern
             "Garage_1": r.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage_1")) else "Einzel-/Doppelgarage",
             "Fahrleistung_1": r.get("Fahrleistung_1", 10000) if pd.notna(r.get("Fahrleistung_1")) else 10000,
             "Kennzeichen_1": r.get("Kennzeichen_1", "") if pd.notna(r.get("Kennzeichen_1")) else ""
         }
 
 # Ergänzt die Master-PINs im Speicher-Fallback
-for m_pin, m_name in {PIN_SIMON: "Simon Seyschab", PIN_Patrick: "Patrick Grellner", PIN_Julian: "Julian Müller"}.items():
+for m_pin, m_name in {PIN_SIMON: "Simon Seyschab", PIN_Patrick: "Patrick Grellner", PIN_Julian: "Julian Striegel"}.items():
     if m_pin not in KUNDEN_DATENBANK:
         KUNDEN_DATENBANK[m_pin] = {"nachname": m_name.split(" ")[1], "vorname": m_name.split(" ")[0]}
 
-# CSS (Unverändert!)
+# CSS (Unverändert)
 st.markdown("""
     <style>
     html, body, [data-testid="stAppViewContainer"] {
@@ -291,13 +332,15 @@ st.markdown("""
     .stSelectbox div[role="button"], 
     .stSelectbox div[data-baseweb="select"], 
     .stSelectbox [data-baseweb="select"] > div,
+    .stSelectbox [data-baseweb="select"] div,
     .stSelectbox span,
     .stSelectbox div {
         color: #0b4aa0 !important;
+        background-color: #ffffff !important;
         font-weight: bold !important;
         -webkit-text-fill-color: #0b4aa0 !important;
     }
-    ul[role="listbox"], li[role="option"] {
+    ul[role="listbox"], li[role="option"], [data-baseweb="menu"] {
         background-color: #ffffff !important;
         color: #0b4aa0 !important;
     }
@@ -399,7 +442,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# PIN-Eingabemaske
+# PIN-Eingabemaske ganz oben!
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -409,7 +452,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # Bereinigung der Benutzereingabe
 tipp_pin = str(pin_eingabe).strip()
-# KORREKTE ANPASSUNG: Verhindert, dass die Wort-Pins wie "Siri0921" mit Nullen aufgefüllt werden!
 if tipp_pin.isdigit() and len(tipp_pin) < 4:
     tipp_pin = tipp_pin.zfill(4)
 
@@ -438,7 +480,6 @@ if is_master_pin or is_valid_customer:
                 
                 if st.form_submit_button("🚀 Kunden-Zugang erstellen"):
                     if new_n and new_v:
-                        # 1. Generiert Initialen + 5-stellige Zufallszahl (z.B. SS-74839)
                         initialen = (str(new_v)[0] + str(new_n)[0]).upper()
                         zufallszahl = random.randint(10000, 99999)
                         safe_new_pin = f"{initialen}-{zufallszahl}"
@@ -459,7 +500,6 @@ if is_master_pin or is_valid_customer:
                         
                         st.write("---")
                         st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        # KORREKTE ANPASSUNG: Sternchen (*) und alten Link restlos entfernt!
                         wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://pg-finance-dateneingabe.streamlit.app\n\n🔑 Deine persönliche PIN lautet: {safe_new_pin}"
                         st.code(wa_text, language="text")
                     else:
@@ -586,7 +626,6 @@ if is_master_pin or is_valid_customer:
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
         
-        # KORREKTUR: Zieht die Fahrzeug-Lernwerte exakt und absturzsicher aus der Datenbank!
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
