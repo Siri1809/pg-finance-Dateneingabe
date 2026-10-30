@@ -23,7 +23,7 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-# === 🔑 E-MAIL BENACHRICHTIGUNGEN (Empfänger-Liste) ===
+# === 🔑 E-MAIL BENACHRICHTIGUNGEN ===
 EMAIL_SIMON = "s.seyschab@pg-finance.de"
 EMAIL_PATRICK = "p.grellner@pg-finance.de" 
 EMAIL_JULIAN = "j.striegel@pg-finance.de"   
@@ -96,7 +96,8 @@ def create_initial_csv_on_onedrive(token):
                     base_cols += f",Auto_{auto}_Fahrer_{fahrer}_Nachname,Auto_{auto}_Fahrer_{fahrer}_Vorname,Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum,Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"
             base_cols += "\n"
             
-            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content"
+            # KORREKTE ERWEITERUNG: Zwingt OneDrive zum Überschreiben bei Konflikten!
+            upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
             requests.put(upload_url, headers=headers, data=base_cols.encode("utf-8"))
     except Exception:
         pass
@@ -110,7 +111,7 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            # Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen
+            # Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen (Löst den LossySetitem-Fehler!)
             df = pd.read_csv(BytesIO(response.content), dtype=str)
             return df
         elif response.status_code == 404:
@@ -166,8 +167,9 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def save_database_to_onedrive(token, df):
-    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive."""
+    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive (Zwingt Microsoft zum Ersetzen!)."""
     try:
+        # KORREKTE ERGÄNZUNG: Zwingt OneDrive mit '?@microsoft.graph.conflictBehavior=replace', Konflikte sofort zu überschreiben!
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -433,7 +435,7 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# PIN-Eingabemaske ganz oben!
+# PIN-Eingabemaske
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -667,7 +669,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -680,7 +682,7 @@ if is_master_pin or is_valid_customer:
         
         col_fz1, col_col2 = st.columns(2)
         with col_fz1:
-            # KORREKTE ERGÄNZUNG: Wandelt die fahrleistung zwingend in einen sauberen Integer-Typ (Zahl) um (Löst den TypeError beim Senden!)
+            # KORREKTE ANPASSUNG: Wandelt die 'fahrleistung' in einen sauberen Text um, um den TypeError beim Senden zu verhindern!
             fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=int(db_fahrleistung), step=1000)
             km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
         with col_col2:
@@ -853,7 +855,7 @@ Weitere Fahrer: {wf_text_for_doc}
                         if not df_db.empty:
                             idx = df_db[df_db["PIN"] == str(pin_eingabe)].index[0]
                             
-                            # KORREKTE ERGÄNZUNG: Erzwingt, dass alle geänderten Zahlen-Werte vor dem Speichern in reinen Text (Dtype: object) umgewandelt werden! (Eliminiert den TypeError endgültig!)
+                            # KORREKTE BEHEBUNG: Wandelt die Werte vor dem Speichern zwingend in Text um (Löst den Fehler beim Senden!)
                             df_db.at[idx, "Vorname"] = str(vorname)
                             df_db.at[idx, "Nachname"] = str(name)
                             df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
@@ -863,8 +865,8 @@ Weitere Fahrer: {wf_text_for_doc}
                             df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
                             
                             df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
-                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung)) # String-Konvertierung!
-                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand)) # String-Konvertierung!
+                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung)) # Typ-Sicherheit!
+                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand)) # Typ-Sicherheit!
                             df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
                             df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
                             
