@@ -24,10 +24,9 @@ CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
 # === 🔑 E-MAIL BENACHRICHTIGUNGEN (Empfänger-Liste) ===
-# Hier können Sie steuern, wer bei einer neuen Dateneingabe benachrichtigt wird!
 EMAIL_SIMON = "s.seyschab@pg-finance.de"
-EMAIL_PATRICK = "p.grellner@pg-finance.de" # Platzhalter für Patrick
-EMAIL_JULIAN = "j.striegel@pg-finance.de"   # Platzhalter für Julian
+EMAIL_PATRICK = "p.grellner@pg-finance.de" 
+EMAIL_JULIAN = "j.striegel@pg-finance.de"   
 
 # === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
@@ -41,23 +40,19 @@ PIN_Julian = "legen_daer"
 def send_notification_email(customer_name, safe_kz, infotext):
     """Verschickt eine automatische Benachrichtigung an das Maklerbüro."""
     try:
-        # Lädt die E-Mail-Zugangsdaten sicher aus dem Streamlit-Tresor
         smtp_server = st.secrets["email"]["smtp_server"]
         smtp_port = int(st.secrets["email"]["smtp_port"])
         smtp_user = st.secrets["email"]["smtp_user"]
         smtp_password = st.secrets["email"]["smtp_password"]
         
-        # Erstellt die E-Mail
         msg = MIMEMultipart()
         msg['From'] = smtp_user
-        # Aktuell geht die Mail an Sie (Simon). Sie können hier ganz einfach weitere Empfänger einpflegen!
         msg['To'] = EMAIL_SIMON 
         msg['Subject'] = f"🚗 Neue Datenerfassung: {customer_name} ({safe_kz})"
         
         body = f"""Hallo Team,\n\nes wurden soeben neue Tarifrechner-Daten eingereicht.\n\n=== DATEN FÜR NAFI / COMPARIT ===\n{infotext}\n\n💡 Alle hochgeladenen Dokumente und Fotos liegen sicher sortiert in Ihrem OneDrive-Ordner:\n'pg_finance_Dateneingabe/{customer_name}/{safe_kz}/'\n\nBeste Grüße,\nIhr automatisches Datenerfassungs-Formular"""
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
-        # Verbindet sich mit dem Postausgangsserver (SMTP) und schickt die Mail ab
         if smtp_port == 465:
             server = smtplib.SMTP_SSL(smtp_server, smtp_port)
         else:
@@ -67,8 +62,7 @@ def send_notification_email(customer_name, safe_kz, infotext):
         server.login(smtp_user, smtp_password)
         server.sendmail(smtp_user, [EMAIL_SIMON], msg.as_string())
         server.quit()
-    except Exception as e:
-        # Falls die E-Mail fehlschlägt, blockieren wir nicht den Kundenprozess, sondern protokollieren den Fehler leise
+    except Exception:
         pass
 
 def get_onedrive_token():
@@ -118,7 +112,8 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content))
+            # KORREKTE ERGÄNZUNG: Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen! (Löst den LossySetitem-Fehler!)
+            df = pd.read_csv(BytesIO(response.content), dtype=str)
             return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
@@ -187,24 +182,22 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
-# =========================================================================
-# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
-# =========================================================================
-
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle erforderlichen Spalten zu besitzen (3 Autos, 5 Fahrer pro Auto)
+# Zwingt den DataFrame, alle Spalten im Speicher als reinen Text (Dtype: object) zu besitzen
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
     for fahrer in range(1, 6):
         erforderliche_spalten += [f"Auto_{auto}_Fahrer_{fahrer}_Nachname", f"Auto_{auto}_Fahrer_{fahrer}_Vorname", f"Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum", f"Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"]
 
+# Jede Spalte zwingend als Text formatieren, um LossySetitemErrors endgültig zu eliminieren!
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
+    df_db[col] = df_db[col].astype(str)
 
 # Bereinigung der PIN-Formate (Löst Geisterzeilen & Zahlen-Fehler)
 if not df_db.empty:
@@ -244,7 +237,7 @@ for m_pin, m_name in {PIN_SIMON: "Simon Seyschab", PIN_Patrick: "Patrick Grellne
     if m_pin not in KUNDEN_DATENBANK:
         KUNDEN_DATENBANK[m_pin] = {"nachname": m_name.split(" ")[1], "vorname": m_name.split(" ")[0]}
 
-# CSS (Unverändert)
+# CSS (Unverändert!)
 st.markdown("""
     <style>
     html, body, [data-testid="stAppViewContainer"] {
@@ -429,20 +422,9 @@ st.markdown("""
         text-transform: uppercase;
     }
     </style>
-""", unsafe_allow_html=True)
+""", unsafe_allowed_html=True)
 
-# Logo & Überschrift laden (Immer sichtbar)
-LOGO_DATEINAME = "pg-finance_Logo.jpg"
-if os.path.exists(LOGO_DATEINAME):
-    logo = Image.open(LOGO_DATEINAME)
-    col1, col2, col3 = st.columns(3)
-    with col2:
-        st.image(logo, use_container_width=True)
-
-st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
-st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
-
-# PIN-Eingabemaske ganz oben!
+# PIN-Eingabemaske
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
@@ -515,21 +497,10 @@ if is_master_pin or is_valid_customer:
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
+                kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
-                kunden_anzeige_liste = []
-                for _, r_k in kunden_df.iterrows():
-                    n_v_name = f"{r_k['Nachname']}, {r_k['Vorname']}"
-                    
-                    autos_liste = []
-                    for k_idx in range(1, 4):
-                        kz_v = r_k.get(f"Kennzeichen_{k_idx}", "")
-                        if pd.notna(kz_v) and str(kz_v).strip() != "":
-                            autos_liste.append(str(kz_v).strip())
-                            
-                    autos_str = " & ".join(autos_liste) if autos_liste else "Noch kein Auto eingereicht"
-                    kunden_anzeige_liste.append(f"{n_v_name} ({autos_str})")
-                
-                kunden_df["Anzeige_Name"] = kunden_anzeige_liste
+                kunden_df["KZ_Anzeige"] = kunden_df["Kennzeichen"].apply(lambda x: x if x != "" else "Noch kein Auto eingereicht")
+                kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"] + " (" + kunden_df["KZ_Anzeige"] + ")"
                 
                 dropdown_optionen = ["-- Bitte wählen Sie einen Kunden aus --"] + list(kunden_df["Anzeige_Name"].unique())
                 ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", dropdown_optionen, index=0)
@@ -900,6 +871,9 @@ Weitere Fahrer: {wf_text_for_doc}
                                     df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = ""
                                     
                             save_database_to_onedrive(token, df_db)
+                            
+                        # === NEU: AUTOMATISCHE BENACHRICHTIGUNGS-MAIL AN SIMON SENDEN ===
+                        send_notification_email(kunden_ordner_name, safe_kz, infotext)
                         
                     st.balloons()
                     st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
