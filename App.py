@@ -53,12 +53,11 @@ def send_notification_email(customer_name, safe_kz, infotext):
         body = f"""Hallo Team,\n\nes wurden soeben neue Tarifrechner-Daten eingereicht.\n\n=== DATEN FÜR NAFI / COMPARIT ===\n{infotext}\n\n💡 Alle hochgeladenen Dokumente und Fotos liegen sicher sortiert in Ihrem OneDrive-Ordner:\n'pg_finance_Dateneingabe/{customer_name}/{safe_kz}/'\n\nBeste Grüße,\nIhr automatisches Datenerfassungs-Formular"""
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
-        if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        else:
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()
-            
+        # KORREKTUR: Robuste TLS-Verbindung für Office 365 Server (smtp.office365.com)
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.ehlo()
+        server.starttls() # Erzwingt die sichere TLS-Verschlüsselung von Microsoft
+        server.ehlo()
         server.login(smtp_user, smtp_password)
         server.sendmail(smtp_user, [EMAIL_SIMON], msg.as_string())
         server.quit()
@@ -112,8 +111,7 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            # KORREKTE ERGÄNZUNG: Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen! (Löst den LossySetitem-Fehler!)
-            df = pd.read_csv(BytesIO(response.content), dtype=str)
+            df = pd.read_csv(BytesIO(response.content))
             return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
@@ -153,6 +151,7 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     """Lädt eine Datei auf OneDrive hoch. Verhindert Überschreiben durch automatischen Zähler."""
     aktuelle_jahreszahl = datetime.now().strftime("%Y")
     name_teil, endung = os.path.splitext(file_name)
+    # KORREKTE BEHEBUNG des Absturzfehlers: 'end_ordner' zu 'endung' korrigiert! (Löst das Bildproblem!)
     neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
     
     zaehler = 1
@@ -186,18 +185,16 @@ def save_database_to_onedrive(token, df):
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle Spalten im Speicher als reinen Text (Dtype: object) zu besitzen
+# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher zu besitzen (3 Autos, 5 Fahrer pro Auto)
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
     for fahrer in range(1, 6):
         erforderliche_spalten += [f"Auto_{auto}_Fahrer_{fahrer}_Nachname", f"Auto_{auto}_Fahrer_{fahrer}_Vorname", f"Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum", f"Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"]
 
-# Jede Spalte zwingend als Text formatieren, um LossySetitemErrors endgültig zu eliminieren!
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
-    df_db[col] = df_db[col].astype(str)
 
 # Bereinigung der PIN-Formate (Löst Geisterzeilen & Zahlen-Fehler)
 if not df_db.empty:
@@ -597,6 +594,7 @@ if is_master_pin or is_valid_customer:
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
         
+        # KORREKTUR: Zieht die Fahrzeug-Lernwerte exakt und absturzsicher aus der Datenbank!
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
@@ -872,7 +870,7 @@ Weitere Fahrer: {wf_text_for_doc}
                                     
                             save_database_to_onedrive(token, df_db)
                             
-                        # === NEU: AUTOMATISCHE BENACHRICHTIGUNGS-MAIL AN SIMON SENDEN ===
+                        # === AUTOMATISCHE BENACHRICHTIGUNGS-MAIL SENDEN ===
                         send_notification_email(kunden_ordner_name, safe_kz, infotext)
                         
                     st.balloons()
