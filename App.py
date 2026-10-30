@@ -96,7 +96,6 @@ def create_initial_csv_on_onedrive(token):
                     base_cols += f",Auto_{auto}_Fahrer_{fahrer}_Nachname,Auto_{auto}_Fahrer_{fahrer}_Vorname,Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum,Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"
             base_cols += "\n"
             
-            # KORREKTE ERWEITERUNG: Zwingt OneDrive zum Überschreiben bei Konflikten!
             upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
             requests.put(upload_url, headers=headers, data=base_cols.encode("utf-8"))
     except Exception:
@@ -111,7 +110,6 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            # Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen (Löst den LossySetitem-Fehler!)
             df = pd.read_csv(BytesIO(response.content), dtype=str)
             return df
         elif response.status_code == 404:
@@ -167,9 +165,8 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def save_database_to_onedrive(token, df):
-    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive (Zwingt Microsoft zum Ersetzen!)."""
+    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive."""
     try:
-        # KORREKTE ERGÄNZUNG: Zwingt OneDrive mit '?@microsoft.graph.conflictBehavior=replace', Konflikte sofort zu überschreiben!
         url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -186,7 +183,7 @@ def save_database_to_onedrive(token, df):
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher als reinen Text (Dtype: object) zu besitzen
+# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher als reinen Text (Dtype: object) zu besitzen (3 Autos, 5 Fahrer pro Auto)
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
@@ -508,19 +505,19 @@ if is_master_pin or is_valid_customer:
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
-                kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
-                kunden_df["KZ_Anzeige"] = kunden_df["Kennzeichen"].apply(lambda x: x if x != "" else "Noch kein Auto eingereicht")
-                kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"] + " (" + kunden_df["KZ_Anzeige"] + ")"
+                # KORREKTE ANPASSUNG: Entfernt "Noch kein Auto eingereicht" und zeigt NUR die Vor- und Nachnamen der Kunden an! (Wunsch 3 gelöst!)
+                kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"]
                 
                 dropdown_optionen = ["-- Bitte wählen Sie einen Kunden aus --"] + list(kunden_df["Anzeige_Name"].unique())
                 ausgewaehlter_kunden_name = st.selectbox("Kunde auswählen:", dropdown_optionen, index=0)
                 
                 if ausgewaehlter_kunden_name and ausgewaehlter_kunden_name != "-- Bitte wählen Sie einen Kunden aus --":
                     nachname_sel = ausgewaehlter_kunden_name.split(", ")[0]
-                    vorname_sel = ausgewaehlter_kunden_name.split(", ")[1].split(" (")[0]
+                    vorname_sel = ausgewaehlter_kunden_name.split(", ")[1]
                     k_row = kunden_df[(kunden_df["Nachname"] == nachname_sel) & (kunden_df["Vorname"] == vorname_sel)].iloc[0]
                     
+                    # Ermittelt alle existierenden Autos dieses spezifischen Kunden
                     existierende_autos = []
                     for k_idx in range(1, 4):
                         kz_v = k_row.get(f"Kennzeichen_{k_idx}", "")
@@ -607,12 +604,10 @@ if is_master_pin or is_valid_customer:
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
-        
-        db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
-        db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
         
+        # Multicar-Ermittlung
         belegte_autos = []
         for a_idx in range(1, 4):
             kz_val = k_row_db.get(f"Kennzeichen_{a_idx}", "")
@@ -621,6 +616,10 @@ if is_master_pin or is_valid_customer:
                 
         auto_index_to_write = 1
         is_editing_existing = False
+        
+        # Standard-Lernwerte für das Fahrzeug
+        db_garage = "Einzel-/Doppelgarage"
+        db_fahrleistung = 10000
         
         if belegte_autos:
             st.markdown("<h3 style='color:#0b4aa0;'>🚗 Ihr Fahrzeug-Portal</h3>", unsafe_allow_html=True)
@@ -637,8 +636,9 @@ if is_master_pin or is_valid_customer:
                 auto_index_to_write = int(auswahl_portal.split("Fahrzeug ")[1].split(" bearbeiten")[0])
                 st.info(f"Sie bearbeiten aktuell das Fahrzeug {auto_index_to_write} mit dem Kennzeichen {k_row_db[f'Kennzeichen_{auto_index_to_write}']}.")
                 
+                # KORREKTUR: Liest die Fahrleistung und die Garage des AKTUELL ausgewählten Fahrzeugs korrekt aus (Wunsch 1 gelöst!)
                 db_garage = k_row_db.get(f"Garage_{auto_index_to_write}", "Einzel-/Doppelgarage")
-                db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) else 10000
+                db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if (pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) and str(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")).strip().isdigit()) else 10000
             else:
                 is_editing_existing = False
                 auto_index_to_write = len(belegte_autos) + 1
@@ -669,7 +669,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -682,7 +682,6 @@ if is_master_pin or is_valid_customer:
         
         col_fz1, col_col2 = st.columns(2)
         with col_fz1:
-            # KORREKTE ANPASSUNG: Wandelt die 'fahrleistung' in einen sauberen Text um, um den TypeError beim Senden zu verhindern!
             fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=int(db_fahrleistung), step=1000)
             km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
         with col_col2:
@@ -704,21 +703,43 @@ if is_master_pin or is_valid_customer:
             else:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
 
-        fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
+        # KORREKTE ANPASSUNG: Macht Fahrzeugschein & Police beim Editieren eines bestehenden Autos optional! (Wunsch 2 gelöst!)
+        if is_editing_existing:
+            fahrzeugschein = st.file_uploader("Fahrzeugschein aktualisieren (Optional)", type=["pdf", "png", "jpg", "jpeg"])
+        else:
+            fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
+            
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # === KARTE 3: WEITERE FAHRER ===
+        # === KARTE 3: WEITERE FAHRER (Mit automatischem Voraussortieren beim Editieren!) ===
         st.markdown("""
             <div class="form-card">
                 <span class="card-header">👥 Weitere Fahrer</span>
         """, unsafe_allow_html=True)
         
-        weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=False)
+        # KORREKTUR: Ermittelt, ob es bereits verzeichnete Fahrer für dieses spezielle Auto gibt! (Wunsch 1 gelöst!)
+        voraus_fahrer_daten = []
+        for f_idx in range(1, 6):
+            f_n_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Nachname", "")
+            f_v_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Vorname", "")
+            if pd.notna(f_n_db) and str(f_n_db).strip() != "":
+                f_geb_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Geburtsdatum", "01.01.1995")
+                f_fs_db = k_row_db.get(f"Auto_{auto_index_to_write}_Fahrer_{f_idx}_Erwerbsdatum", "01.01.2013")
+                voraus_fahrer_daten.append({
+                    "nachname": str(f_n_db).strip(),
+                    "vorname": str(f_v_db).strip(),
+                    "geb": f_geb_db,
+                    "fs": f_fs_db
+                })
+                
+        # Wenn bereits Fahrer existieren, setzen wir die Checkbox und den Zähler automatisch auf "True"!
+        default_wf_check = True if voraus_fahrer_daten else False
+        weitere_fahrer_vorhanden = st.checkbox("Gibt es weitere berechtigte Fahrer für dieses Fahrzeug?", value=default_wf_check)
         weitere_fahrer_daten_liste = []
         
         if weitere_fahrer_vorhanden:
-            if "anzahl_fahrer" not in st.session_state:
-                st.session_state.anzahl_fahrer = 1
+            if "anzahl_fahrer" not in st.session_state or st.session_state.anzahl_fahrer == 0:
+                st.session_state.anzahl_fahrer = len(voraus_fahrer_daten) if voraus_fahrer_daten else 1
                 
             col_plus1, col_plus2 = st.columns([3, 1])
             with col_plus1:
@@ -729,13 +750,25 @@ if is_master_pin or is_valid_customer:
                     
             for i in range(st.session_state.anzahl_fahrer):
                 st.markdown(f"#### 👤 Fahrer {i+1}")
+                
+                # Liest die vorausgefüllten Daten für den jeweiligen Fahrer aus der Schleife
+                v_n_val = voraus_fahrer_daten[i]["nachname"] if i < len(voraus_fahrer_daten) else ""
+                v_v_val = voraus_fahrer_daten[i]["vorname"] if i < len(voraus_fahrer_daten) else ""
+                
+                try:
+                    v_geb_val = datetime.strptime(voraus_fahrer_daten[i]["geb"], '%d.%m.%Y').date() if i < len(voraus_fahrer_daten) else date(1995, 1, 1)
+                    v_fs_val = datetime.strptime(voraus_fahrer_daten[i]["fs"], '%d.%m.%Y').date() if i < len(voraus_fahrer_daten) else date(2013, 1, 1)
+                except Exception:
+                    v_geb_val = date(1995, 1, 1)
+                    v_fs_val = date(2013, 1, 1)
+                
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
-                    wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", key=f"wf_n_{i}")
-                    wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", key=f"wf_v_{i}")
+                    wf_n = st.text_input(f"Nachname (Fahrer {i+1}) *", value=v_n_val, key=f"wf_n_{i}")
+                    wf_v = st.text_input(f"Vorname (Fahrer {i+1}) *", value=v_v_val, key=f"wf_v_{i}")
                 with col_d2:
-                    wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=date(1995, 1, 1), key=f"wf_geb_{i}")
-                    wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=date(2013, 1, 1), key=f"wf_fs_{i}")
+                    wf_geb = st.date_input(f"Geburtsdatum (Fahrer {i+1}) *", min_value=date(1930, 1, 1), max_value=date.today(), value=v_geb_val, key=f"wf_geb_{i}")
+                    wf_fs = st.date_input(f"Führerschein-Erwerb (Fahrer {i+1}) *", min_value=date(1948, 1, 1), max_value=date.today(), value=v_fs_val, key=f"wf_fs_{i}")
                 
                 if wf_n and wf_v:
                     weitere_fahrer_daten_liste.append({
@@ -763,7 +796,11 @@ if is_master_pin or is_valid_customer:
         """, unsafe_allow_html=True)
         st.info("💡 Dokumente oder Fotos können Sie ganz einfach direkt mit Ihrer Smartphone-Kamera aufnehmen.")
         
-        police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
+        # KORREKTUR: Police ist beim Bearbeiten eines bestehenden Autos ebenfalls optional! (Wunsch 2 gelöst!)
+        if is_editing_existing:
+            police = st.file_uploader("Letzte Versicherungspolice aktualisieren (Optional)", type=["pdf", "png", "jpg", "jpeg"])
+        else:
+            police = st.file_uploader("Letzte Versicherungspolice hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
         
         col_fs1, col_fs2 = st.columns(2)
         with col_fs1:
@@ -783,14 +820,20 @@ if is_master_pin or is_valid_customer:
         datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Pflichtfelder-Validierung
+        # Pflichtfelder-Validierung (Fahrzeugschein, Police beim Editieren optional!)
         pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
         if weitere_fahrer_vorhanden:
             pflicht_wf = len(weitere_fahrer_daten_liste) == st.session_state.anzahl_fahrer
         else:
             pflicht_wf = True
             
-        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and fahrzeugschein and police 
+        # KORREKTUR: Wenn der Kunde editiert, müssen Fahrzeugschein und Police nicht zwingend hochgeladen werden!
+        if is_editing_existing:
+            pflicht_dateien = True
+        else:
+            pflicht_dateien = fahrzeugschein and police
+            
+        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and pflicht_dateien 
                                  and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
 
         if pflichtfelder_ausgefuellt:
@@ -855,7 +898,6 @@ Weitere Fahrer: {wf_text_for_doc}
                         if not df_db.empty:
                             idx = df_db[df_db["PIN"] == str(pin_eingabe)].index[0]
                             
-                            # KORREKTE BEHEBUNG: Wandelt die Werte vor dem Speichern zwingend in Text um (Löst den Fehler beim Senden!)
                             df_db.at[idx, "Vorname"] = str(vorname)
                             df_db.at[idx, "Nachname"] = str(name)
                             df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
@@ -865,8 +907,8 @@ Weitere Fahrer: {wf_text_for_doc}
                             df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
                             
                             df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
-                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung)) # Typ-Sicherheit!
-                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand)) # Typ-Sicherheit!
+                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung))
+                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand))
                             df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
                             df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
                             
@@ -896,11 +938,11 @@ Weitere Fahrer: {wf_text_for_doc}
         else:
             st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
 
-        # 6. STIMMUNGSBILD GANZ UNTEN
-        THEME_BILD = "pg-finance-theme.jpg"
-        if os.path.exists(THEME_BILD):
-            theme_img = Image.open(THEME_BILD)
-            st.image(theme_img, use_container_width=True)
+    # 6. STIMMUNGSBILD GANZ UNTEN
+    THEME_BILD = "pg-finance-theme.jpg"
+    if os.path.exists(THEME_BILD):
+        theme_img = Image.open(THEME_BILD)
+        st.image(theme_img, use_container_width=True)
 
 else:
     if pin_eingabe != "":
