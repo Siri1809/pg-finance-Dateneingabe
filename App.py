@@ -3,9 +3,6 @@ import os
 import requests
 import random
 import pandas as pd
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from PIL import Image
 from io import BytesIO
 from datetime import datetime, date
@@ -23,11 +20,6 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
-# === 🔑 E-MAIL BENACHRICHTIGUNGEN (Empfänger-Liste) ===
-EMAIL_SIMON = "s.seyschab@pg-finance.de"
-EMAIL_PATRICK = "p.grellner@pg-finance.de" 
-EMAIL_JULIAN = "j.striegel@pg-finance.de"   
-
 # === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
 PIN_Patrick = "legen_daer"
@@ -36,33 +28,6 @@ PIN_Julian = "legen_daer"
 # =========================================================================
 # 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
-
-def send_notification_email(customer_name, safe_kz, infotext):
-    """Verschickt eine automatische Benachrichtigung an das Maklerbüro."""
-    try:
-        smtp_server = st.secrets["email"]["smtp_server"]
-        smtp_port = int(st.secrets["email"]["smtp_port"])
-        smtp_user = st.secrets["email"]["smtp_user"]
-        smtp_password = st.secrets["email"]["smtp_password"]
-        
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = EMAIL_SIMON 
-        msg['Subject'] = f"🚗 Neue Datenerfassung: {customer_name} ({safe_kz})"
-        
-        body = f"""Hallo Team,\n\nes wurden soeben neue Tarifrechner-Daten eingereicht.\n\n=== DATEN FÜR NAFI / COMPARIT ===\n{infotext}\n\n💡 Alle hochgeladenen Dokumente und Fotos liegen sicher sortiert in Ihrem OneDrive-Ordner:\n'pg_finance_Dateneingabe/{customer_name}/{safe_kz}/'\n\nBeste Grüße,\nIhr automatisches Datenerfassungs-Formular"""
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-        
-        # KORREKTUR: Robuste TLS-Verbindung für Office 365 Server (smtp.office365.com)
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.ehlo()
-        server.starttls() # Erzwingt die sichere TLS-Verschlüsselung von Microsoft
-        server.ehlo()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, [EMAIL_SIMON], msg.as_string())
-        server.quit()
-    except Exception:
-        pass
 
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
@@ -151,7 +116,6 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     """Lädt eine Datei auf OneDrive hoch. Verhindert Überschreiben durch automatischen Zähler."""
     aktuelle_jahreszahl = datetime.now().strftime("%Y")
     name_teil, endung = os.path.splitext(file_name)
-    # KORREKTE BEHEBUNG des Absturzfehlers: 'end_ordner' zu 'endung' korrigiert! (Löst das Bildproblem!)
     neuer_dateiname = f"{name_teil}_{aktuelle_jahreszahl}{endung}"
     
     zaehler = 1
@@ -181,6 +145,10 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
+# =========================================================================
+# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
+# =========================================================================
+
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
@@ -192,9 +160,11 @@ for auto in range(1, 4):
     for fahrer in range(1, 6):
         erforderliche_spalten += [f"Auto_{auto}_Fahrer_{fahrer}_Nachname", f"Auto_{auto}_Fahrer_{fahrer}_Vorname", f"Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum", f"Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"]
 
+# Jede Spalte zwingend als Text formatieren
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
+    df_db[col] = df_db[col].astype(str)
 
 # Bereinigung der PIN-Formate (Löst Geisterzeilen & Zahlen-Fehler)
 if not df_db.empty:
@@ -419,13 +389,25 @@ st.markdown("""
         text-transform: uppercase;
     }
     </style>
-""", unsafe_allowed_html=True)
+""", unsafe_allow_html=True)
+
+# Logo & Überschrift laden (Immer sichtbar)
+LOGO_DATEINAME = "pg-finance_Logo.jpg"
+if os.path.exists(LOGO_DATEINAME):
+    logo = Image.open(LOGO_DATEINAME)
+    col1, col2, col3 = st.columns(3)
+    with col2:
+        st.image(logo, use_container_width=True)
+
+st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
+st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
 # PIN-Eingabemaske
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
     """, unsafe_allow_html=True)
+# KORREKTUR: Die Eingabe-Abfrage ist jetzt an der allerersten Stelle fehlerfrei deklariert! (Tötet alle NameErrors!)
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -594,7 +576,6 @@ if is_master_pin or is_valid_customer:
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
         
-        # KORREKTUR: Zieht die Fahrzeug-Lernwerte exakt und absturzsicher aus der Datenbank!
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
 
@@ -870,8 +851,6 @@ Weitere Fahrer: {wf_text_for_doc}
                                     
                             save_database_to_onedrive(token, df_db)
                             
-                        # === AUTOMATISCHE BENACHRICHTIGUNGS-MAIL SENDEN ===
-                        send_notification_email(kunden_ordner_name, safe_kz, infotext)
                         
                     st.balloons()
                     st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
