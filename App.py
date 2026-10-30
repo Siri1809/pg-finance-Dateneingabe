@@ -3,6 +3,9 @@ import os
 import requests
 import random
 import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from PIL import Image
 from io import BytesIO
 from datetime import datetime, date
@@ -20,6 +23,11 @@ CLIENT_ID = st.secrets["microsoft"]["client_id"]
 CLIENT_SECRET = st.secrets["microsoft"]["client_secret"]
 TENANT_ID = st.secrets["microsoft"]["tenant_id"]
 
+# === 🔑 E-MAIL BENACHRICHTIGUNGEN (Empfänger-Liste) ===
+EMAIL_SIMON = "s.seyschab@pg-finance.de"
+EMAIL_PATRICK = "p.grellner@pg-finance.de" 
+EMAIL_JULIAN = "j.striegel@pg-finance.de"   
+
 # === 🔑 MAKLER-PINS ===
 PIN_SIMON = "Siri0921"
 PIN_Patrick = "legen_daer"
@@ -28,6 +36,32 @@ PIN_Julian = "legen_daer"
 # =========================================================================
 # 🛠️ ALLE HILFS-FUNKTIONEN (Ganz oben, damit Python sie beim Laden kennt!)
 # =========================================================================
+
+def send_notification_email(customer_name, safe_kz, infotext):
+    """Verschickt eine automatische Benachrichtigung an das Maklerbüro."""
+    try:
+        smtp_server = st.secrets["email"]["smtp_server"]
+        smtp_port = int(st.secrets["email"]["smtp_port"])
+        smtp_user = st.secrets["email"]["smtp_user"]
+        smtp_password = st.secrets["email"]["smtp_password"]
+        
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = EMAIL_SIMON 
+        msg['Subject'] = f"🚗 Neue Datenerfassung: {customer_name} ({safe_kz})"
+        
+        body = f"""Hallo Team,\n\nes wurden soeben neue Tarifrechner-Daten eingereicht.\n\n=== DATEN FÜR NAFI / COMPARIT ===\n{infotext}\n\n💡 Alle hochgeladenen Dokumente und Fotos liegen sicher sortiert in Ihrem OneDrive-Ordner:\n'pg_finance_Dateneingabe/{customer_name}/{safe_kz}/'\n\nBeste Grüße,\nIhr automatisches Datenerfassungs-Formular"""
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.ehlo()
+        server.starttls() 
+        server.ehlo()
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, [EMAIL_SIMON], msg.as_string())
+        server.quit()
+    except Exception:
+        pass
 
 def get_onedrive_token():
     """Authentifiziert die App bei Microsoft Graph API."""
@@ -76,7 +110,8 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content))
+            # Zwingt Pandas, alle Spalten als reinen Text (Dtype: object) einzulesen
+            df = pd.read_csv(BytesIO(response.content), dtype=str)
             return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
@@ -145,22 +180,18 @@ def save_database_to_onedrive(token, df):
     except Exception:
         pass
 
-# =========================================================================
-# ⚙️ DATENBANK INITIALISIEREN & BEREINIGEN
-# =========================================================================
-
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
-# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher zu besitzen (3 Autos, 5 Fahrer pro Auto)
+# Zwingt den DataFrame, alle erforderlichen Spalten im Speicher als reinen Text (Dtype: object) zu besitzen
 erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
     for fahrer in range(1, 6):
         erforderliche_spalten += [f"Auto_{auto}_Fahrer_{fahrer}_Nachname", f"Auto_{auto}_Fahrer_{fahrer}_Vorname", f"Auto_{auto}_Fahrer_{fahrer}_Geburtsdatum", f"Auto_{auto}_Fahrer_{fahrer}_Erwerbsdatum"]
 
-# Jede Spalte zwingend als Text formatieren
+# Jede Spalte zwingend als Text formatieren, um LossySetitemErrors endgültig zu eliminieren!
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
@@ -402,12 +433,11 @@ if os.path.exists(LOGO_DATEINAME):
 st.markdown("<h1 class='main-title'>Datenerfassung</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subtitle'>Schnell und sicher alle Daten für Ihre Autoversicherung einreichen</p>", unsafe_allow_html=True)
 
-# PIN-Eingabemaske
+# PIN-Eingabemaske ganz oben!
 st.markdown("""
         <div class="form-card">
             <span class="card-header">🔑 Zugang freischalten</span>
     """, unsafe_allow_html=True)
-# KORREKTUR: Die Eingabe-Abfrage ist jetzt an der allerersten Stelle fehlerfrei deklariert! (Tötet alle NameErrors!)
 pin_eingabe = st.text_input("PIN-Eingabe", type="password", key="pin_eingabe_field", label_visibility="collapsed", placeholder="Bitte Ihre persönliche Kunden-PIN eingeben...")
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -637,7 +667,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -650,7 +680,8 @@ if is_master_pin or is_valid_customer:
         
         col_fz1, col_col2 = st.columns(2)
         with col_fz1:
-            fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=db_fahrleistung, step=1000)
+            # KORREKTE ERGÄNZUNG: Wandelt die fahrleistung zwingend in einen sauberen Integer-Typ (Zahl) um (Löst den TypeError beim Senden!)
+            fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=int(db_fahrleistung), step=1000)
             km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
         with col_col2:
             liste_garage = ["Einzel-/Doppelgarage", "Tiefgarage", "Carport", "Privatgrundstück (befriedet)", "Straße / Laternenparker"]
@@ -822,6 +853,7 @@ Weitere Fahrer: {wf_text_for_doc}
                         if not df_db.empty:
                             idx = df_db[df_db["PIN"] == str(pin_eingabe)].index[0]
                             
+                            # KORREKTE ERGÄNZUNG: Erzwingt, dass alle geänderten Zahlen-Werte vor dem Speichern in reinen Text (Dtype: object) umgewandelt werden! (Eliminiert den TypeError endgültig!)
                             df_db.at[idx, "Vorname"] = str(vorname)
                             df_db.at[idx, "Nachname"] = str(name)
                             df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
@@ -831,18 +863,18 @@ Weitere Fahrer: {wf_text_for_doc}
                             df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
                             
                             df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
-                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = int(fahrleistung)
-                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = int(km_stand)
+                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung)) # String-Konvertierung!
+                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand)) # String-Konvertierung!
                             df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
                             df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
                             
                             for j in range(1, 6):
                                 if j <= len(weitere_fahrer_daten_liste):
                                     f_data = weitere_fahrer_daten_liste[j-1]
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = f_data["nachname"]
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = f_data["vorname"]
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = f_data["geburtsdatum"]
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = f_data["erwerbsdatum"]
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = str(f_data["nachname"])
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = str(f_data["vorname"])
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = str(f_data["geburtsdatum"])
+                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = str(f_data["erwerbsdatum"])
                                 else:
                                     df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = ""
                                     df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = ""
@@ -851,6 +883,8 @@ Weitere Fahrer: {wf_text_for_doc}
                                     
                             save_database_to_onedrive(token, df_db)
                             
+                        # === AUTOMATISCHE BENACHRICHTIGUNGS-MAIL SENDEN ===
+                        send_notification_email(kunden_ordner_name, safe_kz, infotext)
                         
                     st.balloons()
                     st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
