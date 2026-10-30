@@ -89,7 +89,7 @@ def create_initial_csv_on_onedrive(token):
         check_res = requests.get(check_url, headers=headers)
         
         if check_res.status_code == 404: # Datei fehlt
-            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum"
+            base_cols = "PIN,Vorname,Nachname,Weitere_Vornamen,Geburtsort,Familienstand,VN_Status,Wohneigentum,Email,Telefon"
             for auto in range(1, 4):
                 base_cols += f",Kennzeichen_{auto},Fahrleistung_{auto},Kilometerstand_{auto},Garage_{auto},Finanzierung_{auto}"
                 for fahrer in range(1, 6):
@@ -184,7 +184,7 @@ token = get_onedrive_token()
 df_db = read_csv_from_onedrive(token) if token else pd.DataFrame()
 
 # Zwingt den DataFrame, alle erforderlichen Spalten im Speicher als reinen Text (Dtype: object) zu besitzen (3 Autos, 5 Fahrer pro Auto)
-erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum"]
+erforderliche_spalten = ["PIN", "Vorname", "Nachname", "Weitere_Vornamen", "Geburtsort", "Familienstand", "VN_Status", "Wohneigentum", "Email", "Telefon"]
 for auto in range(1, 4):
     erforderliche_spalten += [f"Kennzeichen_{auto}", f"Fahrleistung_{auto}", f"Kilometerstand_{auto}", f"Garage_{auto}", f"Finanzierung_{auto}"]
     for fahrer in range(1, 6):
@@ -224,6 +224,8 @@ if not df_db.empty:
             "Familienstand": r.get("Familienstand", "Ledig") if pd.notna(r.get("Familienstand")) else "Ledig",
             "VN_Status": r.get("VN_Status", "Angestellter") if pd.notna(r.get("VN_Status")) else "Angestellter",
             "Wohneigentum": r.get("Wohneigentum", "Nein, zur Miete") if pd.notna(r.get("Wohneigentum")) else "Nein, zur Miete",
+            "email": r.get("Email", "") if pd.notna(r.get("Email")) else "",
+            "telefon": r.get("Telefon", "") if pd.notna(r.get("Telefon")) else "",
             "Garage_1": r.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(r.get("Garage_1")) else "Einzel-/Doppelgarage",
             "Fahrleistung_1": r.get("Fahrleistung_1", 10000) if pd.notna(r.get("Fahrleistung_1")) else 10000,
             "Kennzeichen_1": r.get("Kennzeichen_1", "") if pd.notna(r.get("Kennzeichen_1")) else ""
@@ -542,6 +544,12 @@ if is_master_pin or is_valid_customer:
                     st.markdown("<span class='makler-label'>Vorname</span>", unsafe_allow_html=True)
                     st.code(str(k_row["Vorname"]), language="text")
                     
+                    st.markdown("<span class='makler-label'>E-Mail-Adresse</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Email", "Nicht angegeben")), language="text")
+
+                    st.markdown("<span class='makler-label'>Telefonnummer</span>", unsafe_allow_html=True)
+                    st.code(str(k_row.get("Telefon", "Nicht angegeben")), language="text")
+
                     st.markdown("<span class='makler-label'>Weitere Vornamen</span>", unsafe_allow_html=True)
                     st.code(str(k_row.get("Weitere_Vornamen", "Keine weiteren Vornamen verzeichnet")), language="text")
                     
@@ -604,6 +612,8 @@ if is_master_pin or is_valid_customer:
         db_familienstand = k_info.get("Familienstand", "Ledig") if pd.notna(k_info.get("Familienstand")) else "Ledig"
         db_vn_status = k_info.get("VN_Status", "Angestellter") if pd.notna(k_info.get("VN_Status")) else "Angestellter"
         db_wohneigentum = k_info.get("Wohneigentum", "Nein, zur Miete") if pd.notna(k_info.get("Wohneigentum")) else "Nein, zur Miete"
+        db_email = k_info.get("email", "") if pd.notna(k_info.get("email")) else ""
+        db_telefon = k_info.get("telefon", "") if pd.notna(k_info.get("telefon")) else ""
         
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
@@ -655,8 +665,10 @@ if is_master_pin or is_valid_customer:
             name = st.text_input("Nachname *", value=kunden_nachname, disabled=True)
             vorname = st.text_input("Vorname *", value=kunden_vorname, disabled=True)
             weitere_vornamen = st.text_input("Weitere Vornamen (falls im Führerschein verzeichnet)", value=db_vornamen)
+            email_adresse = st.text_input("E-Mail-Adresse *", value=db_email, placeholder="z.B. name@beispiel.de")
         with col2:
             geburtsort = st.text_input("Geburtsort *", value=db_geburtsort)
+            telefon_nummer = st.text_input("Telefonnummer *", value=db_telefon, placeholder="z.B. 0170 1234567")
             
             liste_familienstand = ["Ledig", "Verheiratet", "Eingetragene Lebenspartnerschaft", "Geschieden", "Verwitwet"]
             default_fam_index = liste_familienstand.index(db_familienstand) if db_familienstand in liste_familienstand else 0
@@ -829,8 +841,9 @@ if is_master_pin or is_valid_customer:
         else:
             pflicht_dateien = fahrzeugschein and police
             
-        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and pflicht_dateien 
-                                 and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
+        # Pflichtfelder-Validierung inklusive E-Mail und Telefonnummer
+        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and email_adresse and telefon_nummer 
+                                     and pflicht_dateien and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
 
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
@@ -852,6 +865,8 @@ if is_master_pin or is_valid_customer:
                 infotext = f"""=== KUNDENDATEN FÜR NAFI / COMPARIT ===
 Name: {name}
 Vorname: {vorname}
+E-Mail: {email_adresse}
+Telefon: {telefon_nummer}
 Weitere Vornamen: {weitere_vornamen}
 Geburtsort: {geburtsort}
 Familienstand: {familienstand}
@@ -901,6 +916,8 @@ Weitere Fahrer: {wf_text_for_doc}
                             df_db.at[idx, "Familienstand"] = str(familienstand)
                             df_db.at[idx, "VN_Status"] = str(vn_status)
                             df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
+                            df_db.at[idx, "Email"] = str(email_adresse)
+                            df_db.at[idx, "Telefon"] = str(telefon_nummer)
                             
                             df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
                             df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung))
