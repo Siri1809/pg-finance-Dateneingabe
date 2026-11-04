@@ -208,7 +208,6 @@ if not df_db.empty:
         if val.isdigit() and len(val) < 4:
             val = val.zfill(4)
         return val
-
     df_db["PIN"] = df_db["PIN"].apply(clean_pin_val)
 
 # KUNDEN_DATENBANK im Speicher befüllen
@@ -546,10 +545,8 @@ if is_master_pin or is_valid_customer:
                     
                     st.markdown("<span class='makler-label'>E-Mail-Adresse</span>", unsafe_allow_html=True)
                     st.code(str(k_row.get("Email", "Nicht angegeben")), language="text")
-
                     st.markdown("<span class='makler-label'>Telefonnummer</span>", unsafe_allow_html=True)
                     st.code(str(k_row.get("Telefon", "Nicht angegeben")), language="text")
-
                     st.markdown("<span class='makler-label'>Weitere Vornamen</span>", unsafe_allow_html=True)
                     st.code(str(k_row.get("Weitere_Vornamen", "Keine weiteren Vornamen verzeichnet")), language="text")
                     
@@ -597,7 +594,6 @@ if is_master_pin or is_valid_customer:
                     st.info("Bitte wählen Sie einen Kunden aus der Liste aus, um seine Daten einzusehen.")
             else:
                 st.info("Es sind aktuell noch keine Kundendaten auf Ihrem OneDrive verzeichnet.")
-
     # =========================================================================
     # 🚗 MODUS B: DIE INTELLIGENTE EINGABEMASKE FÜR IHRE KUNDEN
     # =========================================================================
@@ -617,7 +613,6 @@ if is_master_pin or is_valid_customer:
         
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
-
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
         
         belegte_autos = []
@@ -639,7 +634,8 @@ if is_master_pin or is_valid_customer:
                 
             auswahl_portal = st.radio("Was möchten Sie tun?", auto_portal_optionen)
             
-            if "Fahrzeug" in auswahl_portal:
+            # BEHOBEN: Prüft nun präzise, ob ein bestehendes Fahrzeug bearbeitet werden soll
+            if "bearbeiten" in auswahl_portal:
                 is_editing_existing = True
                 auto_index_to_write = int(auswahl_portal.split("Fahrzeug ")[1].split(" bearbeiten")[0])
                 st.info(f"Sie bearbeiten aktuell das Fahrzeug {auto_index_to_write} mit dem Kennzeichen {k_row_db[f'Kennzeichen_{auto_index_to_write}']}.")
@@ -653,7 +649,6 @@ if is_master_pin or is_valid_customer:
                 st.info(f"Tragen Sie hier die Daten für Ihr zusätzliches Fahrzeug {auto_index_to_write} ein. Ihre persönlichen Daten werden automatisch übernommen!")
         
         st.write("")
-
         # === KARTE 1: PERSÖNLICHE DATEN ===
         st.markdown("""
             <div class="form-card">
@@ -683,7 +678,6 @@ if is_master_pin or is_valid_customer:
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
-
         # === KARTE 2: FAHRZEUG ===
         st.markdown("""
             <div class="form-card">
@@ -712,7 +706,6 @@ if is_master_pin or is_valid_customer:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", value=k_row_db[f"Kennzeichen_{auto_index_to_write}"], disabled=True)
             else:
                 kennzeichen = st.text_input("Amtliches Kennzeichen *", placeholder="z.B. BA-PG-99")
-
         # KORREKTE ANPASSUNG: Fahrzeugschein & Police beim Editieren eines bestehenden Autos optional
         if is_editing_existing:
             fahrzeugschein = st.file_uploader("Fahrzeugschein aktualisieren (Optional)", type=["pdf", "png", "jpg", "jpeg"])
@@ -720,7 +713,6 @@ if is_master_pin or is_valid_customer:
             fahrzeugschein = st.file_uploader("Fahrzeugschein hier hochladen/fotografieren *", type=["pdf", "png", "jpg", "jpeg"])
             
         st.markdown('</div>', unsafe_allow_html=True)
-
         # === KARTE 3: WEITERE FAHRER (Voraussortieren & KORREKTUR: Keine Pflichtfelder mehr!) ===
         st.markdown("""
             <div class="form-card">
@@ -798,7 +790,6 @@ if is_master_pin or is_valid_customer:
             st.session_state.anzahl_fahrer = 0
             
         st.markdown('</div>', unsafe_allow_html=True)
-
         # === KARTE 4: DOKUMENTE ===
         st.markdown("""
             <div class="form-card">
@@ -824,12 +815,10 @@ if is_master_pin or is_valid_customer:
         with col_id2:
             ausweis_rueckseite = st.file_uploader("Ausweis Rückseite (Optional)", type=["pdf", "png", "jpg", "jpeg"], key="ausweis_hinten")
         st.markdown('</div>', unsafe_allow_html=True)
-
         # === DATENSCHUTZ-EINWILLIGUNG ===
         st.markdown('<div class="form-card"><span class="card-header">⚖️ Datenschutz & Einwilligung</span>', unsafe_allow_html=True)
         datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
         st.markdown('</div>', unsafe_allow_html=True)
-
         # Pflichtfelder-Validierung (Fahrzeugschein, Police beim Editieren optional!)
         pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
         
@@ -844,7 +833,6 @@ if is_master_pin or is_valid_customer:
         # Pflichtfelder-Validierung inklusive E-Mail und Telefonnummer
         pflichtfelder_ausgefuellt = (name and vorname and geburtsort and email_adresse and telefon_nummer 
                                      and pflicht_dateien and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
-
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
                 
@@ -857,11 +845,9 @@ if is_master_pin or is_valid_customer:
                 local_backup_path = os.path.join(kunden_ordner_name, safe_kz)
                 if not os.path.exists(local_backup_path):
                     os.makedirs(local_backup_path)
-
                 wf_text_for_doc = "Nein"
                 if weitere_fahrer_daten_liste:
                     wf_text_for_doc = " | ".join([f"Fahrer {f['id']}: {f['vorname']} {f['nachname']} (Geb: {f['geburtsdatum']}, Erwerb: {f['erwerbsdatum']})" for f in weitere_fahrer_daten_liste])
-
                 infotext = f"""=== KUNDENDATEN FÜR NAFI / COMPARIT ===
 Name: {name}
 Vorname: {vorname}
@@ -881,10 +867,8 @@ Finanzierung: {finanzierungsart}
 ----------------------------------------
 Weitere Fahrer: {wf_text_for_doc}
 ========================================"""
-
                 with open(os.path.join(local_backup_path, "Kopier_Vorlage.txt"), "w", encoding="utf-8") as f:
                     f.write(infotext)
-
                 # === ONEDRIVE HOCHLADEN-PROZESS ===
                 if token:
                     with st.spinner("Daten werden sicher übertragen..."):
@@ -947,16 +931,13 @@ Weitere Fahrer: {wf_text_for_doc}
                     st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
                 else:
                     st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
-
         else:
             st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
-
     # 6. STIMMUNGSBILD GANZ UNTEN
     THEME_BILD = "pg-finance-theme.jpg"
     if os.path.exists(THEME_BILD):
         theme_img = Image.open(THEME_BILD)
         st.image(theme_img, use_container_width=True)
-
 else:
     if pin_eingabe != "":
         st.error("❌ Falsche PIN oder PIN bereits abgelaufen. Bitte prüfen Sie Ihre Eingabe.")
