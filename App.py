@@ -101,7 +101,7 @@ def create_initial_csv_on_onedrive(token):
     except Exception:
         pass
 
-@st.cache_data(ttl=5) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Sekunden
+@st.cache_data(ttl=5)
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -110,7 +110,14 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content), dtype=str)
+            # Automatisches Erkennen von Komma und Semikolon
+            df = pd.read_csv(
+                BytesIO(response.content), 
+                dtype=str, 
+                sep=None, 
+                engine='python', 
+                encoding='utf-8-sig'
+            )
             return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
