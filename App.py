@@ -101,7 +101,7 @@ def create_initial_csv_on_onedrive(token):
     except Exception:
         pass
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=5) # RESSOURCEN-SCHUTZ: Cachet die CSV für 5 Sekunden
 def read_csv_from_onedrive(token):
     """Liest die kunden_pins.csv aus Simons OneDrive-Ordner."""
     try:
@@ -110,7 +110,8 @@ def read_csv_from_onedrive(token):
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            # Automatisches Erkennen von Komma und Semikolon
+            # utf-8-sig entfernt das unsichtbare BOM-Zeichen von Numbers/Excel
+            # sep=None + engine='python' erkennt Komma UND Semikolon automatisch!
             df = pd.read_csv(
                 BytesIO(response.content), 
                 dtype=str, 
@@ -118,6 +119,9 @@ def read_csv_from_onedrive(token):
                 engine='python', 
                 encoding='utf-8-sig'
             )
+            
+            # Entfernt eventuelle Rest-Leerzeichen aus allen Spaltennamen (z.B. "PIN " -> "PIN")
+            df.columns = df.columns.str.strip()
             return df
         elif response.status_code == 404:
             create_initial_csv_on_onedrive(token)
