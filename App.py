@@ -517,7 +517,7 @@ if is_master_pin or is_valid_customer:
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
-                kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
+                #kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
                 # KORREKTUR: Zeigt NUR den Vor- und Nachnamen der Kunden an! (Wunsch 3 gelöst)
                 kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"]
@@ -685,7 +685,7 @@ if is_master_pin or is_valid_customer:
             vn_status = st.selectbox("Status des Versicherungsnehmers (Beruf) *", liste_vn_status, index=default_vn_index)
             
             liste_wohneigentum = ["Ja, Eigenheim (Einfamilienhaus)", "Ja, Eigentumswohnung", "Nein, zur Miete"]
-            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in db_wohneigentum else 2
+            default_wohn_index = liste_wohneigentum.index(db_wohneigentum) if db_wohneigentum in liste_wohneigentum else 2
             wohneigentum = st.selectbox("Wohneigentum vorhanden *", liste_wohneigentum, index=default_wohn_index)
             
         st.markdown('</div>', unsafe_allow_html=True)
