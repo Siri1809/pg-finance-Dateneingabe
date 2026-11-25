@@ -176,19 +176,43 @@ def upload_file_to_onedrive(token, path_structure, file_name, file_content):
     requests.put(url, headers=headers, data=file_content)
 
 def save_database_to_onedrive(token, df):
-    """Speichert die aktualisierte Pandas-Datenbank als CSV auf OneDrive."""
+    """Speichert die aktualisierte Datenbank und gibt True oder False zurück."""
     try:
-        url = f"https://graph.microsoft.com/v1.0/users/{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/kunden_pins.csv:/content?@microsoft.graph.conflictBehavior=replace"
+        url = (
+            f"https://graph.microsoft.com/v1.0/users/"
+            f"{USER_SYSTEM_NAME}/drive/root:/pg_finance_Dateneingabe/"
+            f"kunden_pins.csv:/content"
+            f"?@microsoft.graph.conflictBehavior=replace"
+        )
+
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/octet-stream"
         }
+
         csv_buffer = BytesIO()
         df.to_csv(csv_buffer, index=False)
-        requests.put(url, headers=headers, data=csv_buffer.getvalue())
-        st.cache_data.clear() # Leert den Cache sofort
-    except Exception:
-        pass
+
+        response = requests.put(
+            url,
+            headers=headers,
+            data=csv_buffer.getvalue(),
+            timeout=30
+        )
+
+        if response.status_code in (200, 201):
+            st.cache_data.clear()
+            return True
+
+        st.error(
+            f"Die CSV konnte nicht gespeichert werden. "
+            f"OneDrive-Statuscode: {response.status_code}"
+        )
+        return False
+
+    except Exception as e:
+        st.error(f"Fehler beim Speichern der CSV: {e}")
+        return False
 
 # Token und Datenbank (DataFrame) laden
 token = get_onedrive_token()
@@ -205,20 +229,24 @@ for auto in range(1, 4):
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
-    df_db[col] = df_db[col].astype(str)
+    df_db[col] = df_db[col].fillna("").astype(str)
 
-# Bereinigung der PIN-Formate (Löst Geisterzeilen & Zahlen-Fehler)
+def clean_pin_val(x):
+    """Bereinigt PIN-Werte aus Excel- oder CSV-Dateien."""
+    val = str(x).strip()
+
+    if val.endswith(".0"):
+        val = val[:-2]
+
+    if val.isdigit() and len(val) < 4:
+        val = val.zfill(4)
+
+    return val
+
+# Bereinigung der PIN-Formate
 if not df_db.empty:
     df_db = df_db.dropna(subset=["PIN"])
     df_db = df_db[df_db["PIN"].astype(str).str.strip() != ""]
-    
-    def clean_pin_val(x):
-        val = str(x).strip()
-        if val.endswith(".0"):
-            val = val[:-2]
-        if val.isdigit() and len(val) < 4:
-            val = val.zfill(4)
-        return val
     df_db["PIN"] = df_db["PIN"].apply(clean_pin_val)
 
 # KUNDEN_DATENBANK im Speicher befüllen
@@ -483,30 +511,79 @@ if is_master_pin or is_valid_customer:
                 if st.form_submit_button("🚀 Kunden-Zugang erstellen"):
                     if new_n and new_v:
                         initialen = (str(new_v)[0] + str(new_n)[0]).upper()
-                        zufallszahl = random.randint(10000, 99999)
-                        safe_new_pin = f"{initialen}-{zufallszahl}"
-                        
-                        neuer_k_row = {col: "" for col in df_db.columns}
-                        neuer_k_row["PIN"] = safe_new_pin
-                        neuer_k_row["Nachname"] = str(new_n).strip()
-                        neuer_k_row["Vorname"] = str(new_v).strip()
-                        
-                        df_db = pd.concat([df_db, pd.DataFrame([neuer_k_row])], ignore_index=True)
-                        save_database_to_onedrive(token, df_db)
-                        
-                        k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
-                        create_onedrive_folder(token, k_ordner)
-                        
-                        st.success(f"🎉 Zugang für {new_v} {new_n} erfolgreich auf OneDrive erstellt!")
-                        st.balloons()
-                        
-                        st.write("---")
-                        st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        wa_text = f"Hallo {new_v},\n\nhier ist dein persönlicher Link zur schnellen Datenerfassung für deine Autoversicherung:\n\n🔗 https://pg-finance-dateneingabe.streamlit.app\n\n🔑 Deine persönliche PIN lautet: {safe_new_pin}"
-                        st.code(wa_text, language="text")
+
+                        # Aktuellste CSV abrufen, damit manuelle Änderungen erhalten bleiben
+                        st.cache_data.clear()
+                        aktuelle_df_db = read_csv_from_onedrive(token)
+
+                        if aktuelle_df_db.empty and len(aktuelle_df_db.columns) == 0:
+                            st.error(
+                                "Die aktuelle Kundendatenbank konnte nicht geladen werden. "
+                                "Der neue Zugang wurde nicht erstellt."
+                            )
+                        else:
+                            aktuelle_df_db.columns = aktuelle_df_db.columns.str.strip()
+
+                            for col in erforderliche_spalten:
+                                if col not in aktuelle_df_db.columns:
+                                    aktuelle_df_db[col] = ""
+                                aktuelle_df_db[col] = aktuelle_df_db[col].fillna("").astype(str)
+
+                            aktuelle_df_db["PIN"] = aktuelle_df_db["PIN"].apply(clean_pin_val)
+
+                            # Eindeutige Kunden-PIN erzeugen
+                            while True:
+                                zufallszahl = random.randint(10000, 99999)
+                                safe_new_pin = f"{initialen}-{zufallszahl}"
+                                if safe_new_pin not in aktuelle_df_db["PIN"].values:
+                                    break
+
+                            neuer_k_row = {col: "" for col in aktuelle_df_db.columns}
+                            neuer_k_row["PIN"] = safe_new_pin
+                            neuer_k_row["Nachname"] = str(new_n).strip()
+                            neuer_k_row["Vorname"] = str(new_v).strip()
+
+                            neue_df_db = pd.concat(
+                                [aktuelle_df_db, pd.DataFrame([neuer_k_row])],
+                                ignore_index=True
+                            )
+
+                            kunde_erfolgreich_gespeichert = save_database_to_onedrive(
+                                token,
+                                neue_df_db
+                            )
+
+                            if kunde_erfolgreich_gespeichert:
+                                df_db = neue_df_db
+
+                                k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
+                                create_onedrive_folder(token, k_ordner)
+
+                                st.success(
+                                    f"🎉 Zugang für {new_v} {new_n} erfolgreich "
+                                    f"auf OneDrive erstellt!"
+                                )
+                                st.balloons()
+
+                                st.write("---")
+                                st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
+
+                                wa_text = (
+                                    f"Hallo {new_v},\n\n"
+                                    f"hier ist dein persönlicher Link zur schnellen Datenerfassung "
+                                    f"für deine Autoversicherung:\n\n"
+                                    f"🔗 https://pg-finance-dateneingabe.streamlit.app\n\n"
+                                    f"🔑 Deine persönliche PIN lautet: {safe_new_pin}"
+                                )
+                                st.code(wa_text, language="text")
+                            else:
+                                st.error(
+                                    "Der neue Kunden-Zugang konnte nicht in OneDrive gespeichert werden. "
+                                    "Es wurde keine gültige Kunden-PIN erstellt."
+                                )
                     else:
                         st.error("Bitte Nachnamen und Vornamen ausfüllen!")
-                        
+
         # --- REITER 2: KUNDENDATEN KOPIEREN ---
         else:
             st.markdown("<h3 style='color:#0b4aa0;'>📋 Kundendaten-Manager</h3>", unsafe_allow_html=True)
@@ -517,9 +594,8 @@ if is_master_pin or is_valid_customer:
             if not kunden_df.empty:
                 kunden_df["Nachname"] = kunden_df["Nachname"].fillna("Unbekannt").astype(str).str.strip()
                 kunden_df["Vorname"] = kunden_df["Vorname"].fillna("Unbekannt").astype(str).str.strip()
-                #kunden_df["Kennzeichen"] = kunden_df["Kennzeichen"].fillna("").astype(str).str.strip()
                 
-                # KORREKTUR: Zeigt NUR den Vor- und Nachnamen der Kunden an! (Wunsch 3 gelöst)
+                # KORREKTUR: Zeigt NUR den Vor- und Nachnamen der Kunden an
                 kunden_df["Anzeige_Name"] = kunden_df["Nachname"] + ", " + kunden_df["Vorname"]
                 
                 dropdown_optionen = ["-- Bitte wählen Sie einen Kunden aus --"] + list(kunden_df["Anzeige_Name"].unique())
@@ -624,6 +700,8 @@ if is_master_pin or is_valid_customer:
         
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
+        db_km_stand = 0
+        db_finanzierung = "Eigenfinanziert (Bar / Kauf)"
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
         
         belegte_autos = []
@@ -654,6 +732,16 @@ if is_master_pin or is_valid_customer:
                 # KORREKTUR: Liest die Fahrleistung des AKTUELL ausgewählten Fahrzeugs fehlerfrei aus! (Wunsch 1 gelöst)
                 db_garage = k_row_db.get(f"Garage_{auto_index_to_write}", "Einzel-/Doppelgarage")
                 db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if (pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) and str(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")).strip().isdigit()) else 10000
+
+                km_rohwert = k_row_db.get(f"Kilometerstand_{auto_index_to_write}", "0")
+                db_km_stand = int(str(km_rohwert).strip()) if str(km_rohwert).strip().isdigit() else 0
+
+                db_finanzierung = str(
+                    k_row_db.get(
+                        f"Finanzierung_{auto_index_to_write}",
+                        "Eigenfinanziert (Bar / Kauf)"
+                    )
+                ).strip()
             else:
                 is_editing_existing = False
                 auto_index_to_write = len(belegte_autos) + 1
@@ -698,13 +786,23 @@ if is_master_pin or is_valid_customer:
         col_fz1, col_col2 = st.columns(2)
         with col_fz1:
             fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=int(db_fahrleistung), step=1000)
-            km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
+            km_stand = st.number_input("Aktueller Kilometerstand", value=int(db_km_stand), step=5000)
         with col_col2:
             liste_garage = ["Einzel-/Doppelgarage", "Tiefgarage", "Carport", "Privatgrundstück (befriedet)", "Straße / Laternenparker"]
             default_gar_index = liste_garage.index(db_garage) if db_garage in liste_garage else 0
             garage = st.selectbox("Abstellort des Fahrzeugs (Garage) *", liste_garage, index=default_gar_index)
             
-            finanzierungsart = st.selectbox("Finanzierungsart des Fahrzeugs *", ["Eigenfinanziert (Bar / Kauf)", "Geleast", "Kreditfinanziert (Finanzierung)"])
+            liste_finanzierung = [
+                "Eigenfinanziert (Bar / Kauf)",
+                "Geleast",
+                "Kreditfinanziert (Finanzierung)"
+            ]
+            default_finanz_index = liste_finanzierung.index(db_finanzierung) if db_finanzierung in liste_finanzierung else 0
+            finanzierungsart = st.selectbox(
+                "Finanzierungsart des Fahrzeugs *",
+                liste_finanzierung,
+                index=default_finanz_index
+            )
         
         st.write("") 
         col_kz1, col_kz2 = st.columns([2, 1])
@@ -901,47 +999,139 @@ Weitere Fahrer: {wf_text_for_doc}
                             upload_file_to_onedrive(token, vollstaendiger_upload_pfad, f"Ausweis_Rueckseite_{ausweis_rueckseite.name}", ausweis_rueckseite.getbuffer())
                         
                         # === LERNENDER DATENBANK-PROZESS ===
-                        if not df_db.empty:
-                            idx = df_db[df_db["PIN"] == str(pin_eingabe)].index[0]
+
+                        # Unmittelbar vor dem Speichern die aktuellste CSV von OneDrive laden.
+                        # Dadurch bleiben zwischenzeitliche manuelle Änderungen erhalten.
+                        csv_erfolgreich_aktualisiert = False
+                        st.cache_data.clear()
+                        aktuelle_df_db = read_csv_from_onedrive(token)
+
+                        if not aktuelle_df_db.empty:
+
+                            # Spaltennamen vorsichtshalber bereinigen
+                            aktuelle_df_db.columns = aktuelle_df_db.columns.str.strip()
+
+                            # Fehlende benötigte Spalten ergänzen und als Text formatieren
+                            for col in erforderliche_spalten:
+                                if col not in aktuelle_df_db.columns:
+                                    aktuelle_df_db[col] = ""
+                                aktuelle_df_db[col] = aktuelle_df_db[col].fillna("").astype(str)
+
+                            # PINs bereinigen, damit z. B. 123.0 und 0123 korrekt behandelt werden
+                            aktuelle_df_db["PIN"] = aktuelle_df_db["PIN"].apply(clean_pin_val)
+
+                            # Den Kunden anhand der bereits bereinigten PIN suchen
+                            kunden_treffer = aktuelle_df_db["PIN"] == tipp_pin
+
+                            if kunden_treffer.any():
+                                idx = aktuelle_df_db[kunden_treffer].index[0]
+
+                                # Persönliche Daten aktualisieren
+                                aktuelle_df_db.at[idx, "Vorname"] = str(vorname)
+                                aktuelle_df_db.at[idx, "Nachname"] = str(name)
+                                aktuelle_df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
+                                aktuelle_df_db.at[idx, "Geburtsort"] = str(geburtsort)
+                                aktuelle_df_db.at[idx, "Familienstand"] = str(familienstand)
+                                aktuelle_df_db.at[idx, "VN_Status"] = str(vn_status)
+                                aktuelle_df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
+                                aktuelle_df_db.at[idx, "Email"] = str(email_adresse)
+                                aktuelle_df_db.at[idx, "Telefon"] = str(telefon_nummer)
+
+                                # Daten des aktuell ausgewählten Fahrzeugs aktualisieren
+                                aktuelle_df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
+                                aktuelle_df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung))
+                                aktuelle_df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand))
+                                aktuelle_df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
+                                aktuelle_df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
+
+                                # Weitere Fahrer aktualisieren
+                                for j in range(1, 6):
+                                    if j <= len(weitere_fahrer_daten_liste):
+                                        f_data = weitere_fahrer_daten_liste[j - 1]
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"
+                                        ] = str(f_data["nachname"])
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"
+                                        ] = str(f_data["vorname"])
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"
+                                        ] = str(f_data["geburtsdatum"])
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"
+                                        ] = str(f_data["erwerbsdatum"])
+
+                                    else:
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"
+                                        ] = ""
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"
+                                        ] = ""
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"
+                                        ] = ""
+
+                                        aktuelle_df_db.at[
+                                            idx,
+                                            f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"
+                                        ] = ""
+
+                                # Jetzt die frisch geladene und aktualisierte CSV speichern
+                                csv_erfolgreich_aktualisiert = save_database_to_onedrive(
+                                    token,
+                                    aktuelle_df_db
+                                )
+
+                                # Variable nur nach erfolgreichem OneDrive-Upload aktualisieren
+                                if csv_erfolgreich_aktualisiert:
+                                    df_db = aktuelle_df_db
+
+                            else:
+                                st.error(
+                                    "Der Kunden-Zugang wurde in der aktuellen CSV nicht mehr gefunden. "
+                                    "Bitte wenden Sie sich an Ihren Ansprechpartner."
+                                )
+
+                        else:
+                            st.error(
+                                "Die Kundendatenbank konnte vor dem Speichern nicht erneut geladen werden. "
+                                "Ihre Dokumente wurden hochgeladen, aber die CSV wurde nicht aktualisiert."
+                            )
                             
-                            df_db.at[idx, "Vorname"] = str(vorname)
-                            df_db.at[idx, "Nachname"] = str(name)
-                            df_db.at[idx, "Weitere_Vornamen"] = str(weitere_vornamen)
-                            df_db.at[idx, "Geburtsort"] = str(geburtsort)
-                            df_db.at[idx, "Familienstand"] = str(familienstand)
-                            df_db.at[idx, "VN_Status"] = str(vn_status)
-                            df_db.at[idx, "Wohneigentum"] = str(wohneigentum)
-                            df_db.at[idx, "Email"] = str(email_adresse)
-                            df_db.at[idx, "Telefon"] = str(telefon_nummer)
-                            
-                            df_db.at[idx, f"Kennzeichen_{auto_index_to_write}"] = str(kennzeichen)
-                            df_db.at[idx, f"Fahrleistung_{auto_index_to_write}"] = str(int(fahrleistung))
-                            df_db.at[idx, f"Kilometerstand_{auto_index_to_write}"] = str(int(km_stand))
-                            df_db.at[idx, f"Garage_{auto_index_to_write}"] = str(garage)
-                            df_db.at[idx, f"Finanzierung_{auto_index_to_write}"] = str(finanzierungsart)
-                            
-                            for j in range(1, 6):
-                                if j <= len(weitere_fahrer_daten_liste):
-                                    f_data = weitere_fahrer_daten_liste[j-1]
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = str(f_data["nachname"])
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = str(f_data["vorname"])
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = str(f_data["geburtsdatum"])
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = str(f_data["erwerbsdatum"])
-                                else:
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Nachname"] = ""
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Vorname"] = ""
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Geburtsdatum"] = ""
-                                    df_db.at[idx, f"Auto_{auto_index_to_write}_Fahrer_{j}_Erwerbsdatum"] = ""
-                                    
-                            save_database_to_onedrive(token, df_db)
-                            
-                        # === AUTOMATISCHE BENACHRICHTIGUNGS-MAIL SENDEN ===
-                        send_notification_email(kunden_ordner_name, safe_kz, infotext)
-                        
-                    st.balloons()
-                    st.success("🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. Sie können das Browserfenster jetzt schließen.")
+                        # Benachrichtigung und Erfolgsmeldung nur nach erfolgreicher CSV-Aktualisierung
+                        if csv_erfolgreich_aktualisiert:
+                            send_notification_email(kunden_ordner_name, safe_kz, infotext)
+
+                            st.balloons()
+                            st.success(
+                                "🎉 Übertragung erfolgreich! Vielen Dank für Ihre Mühe. "
+                                "Sie können das Browserfenster jetzt schließen."
+                            )
+                        else:
+                            st.warning(
+                                "⚠️ Die Dokumente wurden hochgeladen, aber die Kundendaten konnten "
+                                "nicht vollständig in der CSV gespeichert werden. "
+                                "Bitte wenden Sie sich an Ihren Ansprechpartner."
+                            )
                 else:
-                    st.warning("⚠️ OneDrive Verbindung offline. Daten wurden nur lokal gesichert.")
+                    st.warning(
+                        "⚠️ Keine Verbindung zu OneDrive. "
+                        "Die Daten wurden nur lokal gesichert."
+                    )
         else:
             st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
     # 6. STIMMUNGSBILD GANZ UNTEN
