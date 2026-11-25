@@ -229,7 +229,7 @@ for auto in range(1, 4):
 for col in erforderliche_spalten:
     if col not in df_db.columns:
         df_db[col] = ""
-    df_db[col] = df_db[col].astype(str)
+    df_db[col] = df_db[col].fillna("").astype(str)
 
 def clean_pin_val(x):
     """Bereinigt PIN-Werte aus Excel- oder CSV-Dateien."""
@@ -428,21 +428,35 @@ st.markdown("""
         padding: 6px 14px !important;
         border-radius: 6px !important;
     }
-    /* Hinweisfelder mobil besser lesbar: heller Hintergrund + dunkler Text */
-    [data-testid="stAlert"] {
-        background-color: #eef7ff !important;
-        border: 1px solid #b8dcf4 !important;
-        border-left: 5px solid #00aeeb !important;
+    /* Streamlit-Hinweisfelder: heller Hintergrund und gut lesbarer Text */
+    div[data-testid="stAlert"],
+    div[data-testid="stAlert"] > div,
+    div[data-testid="stAlert"] [data-baseweb="notification"],
+    div[data-testid="stAlert"] [data-baseweb="notification"] > div,
+    div[data-testid="stNotification"],
+    div[data-baseweb="notification"] {
+        background: #eaf6ff !important;
+        background-color: #eaf6ff !important;
+        color: #0b4aa0 !important;
+    }
+    div[data-testid="stAlert"] {
+        border: 2px solid #00aeeb !important;
+        border-left: 6px solid #0b4aa0 !important;
         border-radius: 10px !important;
     }
-    [data-testid="stAlert"] p,
-    [data-testid="stAlert"] span,
-    [data-testid="stAlert"] div {
-        color: #17324d !important;
-        -webkit-text-fill-color: #17324d !important;
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] span,
+    div[data-testid="stAlert"] strong,
+    div[data-testid="stAlert"] div,
+    div[data-baseweb="notification"] p,
+    div[data-baseweb="notification"] span,
+    div[data-baseweb="notification"] div {
+        color: #0b4aa0 !important;
+        -webkit-text-fill-color: #0b4aa0 !important;
         font-weight: 600 !important;
     }
-    [data-testid="stAlert"] svg {
+    div[data-testid="stAlert"] svg,
+    div[data-baseweb="notification"] svg {
         color: #0b4aa0 !important;
         fill: #0b4aa0 !important;
     }
@@ -525,55 +539,59 @@ if is_master_pin or is_valid_customer:
                 if st.form_submit_button("🚀 Kunden-Zugang erstellen"):
                     if new_n and new_v:
                         initialen = (str(new_v)[0] + str(new_n)[0]).upper()
-                        zufallszahl = random.randint(10000, 99999)
-                        safe_new_pin = f"{initialen}-{zufallszahl}"
-                        
-                        neuer_k_row = {col: "" for col in df_db.columns}
-                        neuer_k_row["PIN"] = safe_new_pin
-                        neuer_k_row["Nachname"] = str(new_n).strip()
-                        neuer_k_row["Vorname"] = str(new_v).strip()
-                        
-                        neue_df_db = pd.concat(
-                            [df_db, pd.DataFrame([neuer_k_row])],
-                            ignore_index=True
-                        )
+                        st.cache_data.clear()
+                        aktuelle_df_db = read_csv_from_onedrive(token)
 
-                        kunde_erfolgreich_gespeichert = save_database_to_onedrive(
-                            token,
-                            neue_df_db
-                        )
-
-                        if kunde_erfolgreich_gespeichert:
-                            df_db = neue_df_db
-
-                            k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
-                            create_onedrive_folder(token, k_ordner)
-
-                            st.success(
-                                f"🎉 Zugang für {new_v} {new_n} erfolgreich "
-                                f"auf OneDrive erstellt!"
-                            )
-                            st.balloons()
-                        
-                            st.write("---")
-                            st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
-                        
-                            wa_text = (
-                                f"Hallo {new_v},\n\n"
-                                f"hier ist dein persönlicher Link zur schnellen Datenerfassung "
-                                f"für deine Autoversicherung:\n\n"
-                                f"🔗 https://pg-finance-dateneingabe.streamlit.app\n\n"
-                                f"🔑 Deine persönliche PIN lautet: {safe_new_pin}"
-                            )
-
-                            st.code(wa_text, language="text")
-
-                        else:
+                        if aktuelle_df_db.empty and len(aktuelle_df_db.columns) == 0:
                             st.error(
-                                "Der neue Kunden-Zugang konnte nicht in OneDrive gespeichert werden. "
-                                "Es wurde keine gültige Kunden-PIN erstellt."
+                                "Die aktuelle Kundendatenbank konnte nicht geladen werden. "
+                                "Der neue Zugang wurde nicht erstellt."
                             )
-                        
+                        else:
+                            aktuelle_df_db.columns = aktuelle_df_db.columns.str.strip()
+                            for col in erforderliche_spalten:
+                                if col not in aktuelle_df_db.columns:
+                                    aktuelle_df_db[col] = ""
+                                aktuelle_df_db[col] = aktuelle_df_db[col].fillna("").astype(str)
+
+                            aktuelle_df_db["PIN"] = aktuelle_df_db["PIN"].apply(clean_pin_val)
+                            while True:
+                                zufallszahl = random.randint(10000, 99999)
+                                safe_new_pin = f"{initialen}-{zufallszahl}"
+                                if safe_new_pin not in aktuelle_df_db["PIN"].values:
+                                    break
+
+                            neuer_k_row = {col: "" for col in aktuelle_df_db.columns}
+                            neuer_k_row["PIN"] = safe_new_pin
+                            neuer_k_row["Nachname"] = str(new_n).strip()
+                            neuer_k_row["Vorname"] = str(new_v).strip()
+                            neue_df_db = pd.concat([aktuelle_df_db, pd.DataFrame([neuer_k_row])], ignore_index=True)
+                            kunde_erfolgreich_gespeichert = save_database_to_onedrive(token, neue_df_db)
+
+                            if kunde_erfolgreich_gespeichert:
+                                df_db = neue_df_db
+                                k_ordner = f"{str(new_n).strip()}_{str(new_v).strip()}"
+                                create_onedrive_folder(token, k_ordner)
+                                st.success(f"🎉 Zugang für {new_v} {new_n} erfolgreich auf OneDrive erstellt!")
+                                st.balloons()
+                                st.write("---")
+                                st.write("📋 **WhatsApp-Nachricht zum Kopieren:**")
+                                wa_text = (
+                                    f"Hallo {new_v},\n\n"
+                                    f"hier ist dein persönlicher Link zur schnellen Datenerfassung "
+                                    f"für deine Autoversicherung:\n\n"
+                                    f"🔗 https://pg-finance-dateneingabe.streamlit.app\n\n"
+                                    f"🔑 Deine persönliche PIN lautet: {safe_new_pin}"
+                                )
+                                st.code(wa_text, language="text")
+                            else:
+                                st.error(
+                                    "Der neue Kunden-Zugang konnte nicht in OneDrive gespeichert werden. "
+                                    "Es wurde keine gültige Kunden-PIN erstellt."
+                                )
+                    else:
+                        st.error("Bitte Nachnamen und Vornamen ausfüllen!")
+
         # --- REITER 2: KUNDENDATEN KOPIEREN ---
         else:
             st.markdown("<h3 style='color:#0b4aa0;'>📋 Kundendaten-Manager</h3>", unsafe_allow_html=True)
@@ -693,6 +711,8 @@ if is_master_pin or is_valid_customer:
         
         db_garage = k_row_db.get("Garage_1", "Einzel-/Doppelgarage") if pd.notna(k_row_db.get("Garage_1")) else "Einzel-/Doppelgarage"
         db_fahrleistung = int(k_row_db.get("Fahrleistung_1", 10000)) if (pd.notna(k_row_db.get("Fahrleistung_1")) and str(k_row_db.get("Fahrleistung_1")).isdigit()) else 10000
+        db_km_stand = 0
+        db_finanzierung = "Eigenfinanziert (Bar / Kauf)"
         st.success(f"🔓 Willkommen {kunden_vorname} {kunden_nachname}! Ihr Formular wurde freigeschaltet.")
         
         belegte_autos = []
@@ -723,6 +743,13 @@ if is_master_pin or is_valid_customer:
                 # KORREKTUR: Liest die Fahrleistung des AKTUELL ausgewählten Fahrzeugs fehlerfrei aus! (Wunsch 1 gelöst)
                 db_garage = k_row_db.get(f"Garage_{auto_index_to_write}", "Einzel-/Doppelgarage")
                 db_fahrleistung = int(k_row_db.get(f"Fahrleistung_{auto_index_to_write}", 10000)) if (pd.notna(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")) and str(k_row_db.get(f"Fahrleistung_{auto_index_to_write}")).strip().isdigit()) else 10000
+
+                km_rohwert = k_row_db.get(f"Kilometerstand_{auto_index_to_write}", "0")
+                db_km_stand = int(str(km_rohwert).strip()) if str(km_rohwert).strip().isdigit() else 0
+                db_finanzierung = str(k_row_db.get(
+                    f"Finanzierung_{auto_index_to_write}",
+                    "Eigenfinanziert (Bar / Kauf)"
+                )).strip()
             else:
                 is_editing_existing = False
                 auto_index_to_write = len(belegte_autos) + 1
@@ -767,13 +794,23 @@ if is_master_pin or is_valid_customer:
         col_fz1, col_col2 = st.columns(2)
         with col_fz1:
             fahrleistung = st.number_input("Jährliche Fahrleistung (in km) *", value=int(db_fahrleistung), step=1000)
-            km_stand = st.number_input("Aktueller Kilometerstand", value=0, step=5000)
+            km_stand = st.number_input("Aktueller Kilometerstand", value=int(db_km_stand), step=5000)
         with col_col2:
             liste_garage = ["Einzel-/Doppelgarage", "Tiefgarage", "Carport", "Privatgrundstück (befriedet)", "Straße / Laternenparker"]
             default_gar_index = liste_garage.index(db_garage) if db_garage in liste_garage else 0
             garage = st.selectbox("Abstellort des Fahrzeugs (Garage) *", liste_garage, index=default_gar_index)
             
-            finanzierungsart = st.selectbox("Finanzierungsart des Fahrzeugs *", ["Eigenfinanziert (Bar / Kauf)", "Geleast", "Kreditfinanziert (Finanzierung)"])
+            liste_finanzierung = [
+                "Eigenfinanziert (Bar / Kauf)",
+                "Geleast",
+                "Kreditfinanziert (Finanzierung)"
+            ]
+            default_finanz_index = liste_finanzierung.index(db_finanzierung) if db_finanzierung in liste_finanzierung else 0
+            finanzierungsart = st.selectbox(
+                "Finanzierungsart des Fahrzeugs *",
+                liste_finanzierung,
+                index=default_finanz_index
+            )
         
         st.write("") 
         col_kz1, col_kz2 = st.columns([2, 1])
@@ -899,20 +936,20 @@ if is_master_pin or is_valid_customer:
         st.markdown('<div class="form-card"><span class="card-header">⚖️ Datenschutz & Einwilligung</span>', unsafe_allow_html=True)
         datenschutz_akzeptiert = st.checkbox("Ich willige ein, dass meine Daten und Dokumente zum Zwecke der Angebotserstellung für die Kfz-Versicherung verarbeitet und gespeichert werden dürfen. Diese Einwilligung kann ich jederzeit widerrufen. *")
         st.markdown('</div>', unsafe_allow_html=True)
-        # Pflichtfelder-Validierung (Fahrzeugschein, Police beim Editieren optional!)
-        pflicht_kennzeichen = neufahrzeug or (kennzeichen and kennzeichen != "")
-        
-        # KORREKTE ANPASSUNG: Weitere Fahrer sind KEINE Pflichtfelder mehr! (Wunsch 2 gelöst!)
-        pflicht_wf = True 
-            
-        if is_editing_existing:
-            pflicht_dateien = True
-        else:
-            pflicht_dateien = fahrzeugschein and police
-            
-        # Pflichtfelder-Validierung inklusive E-Mail und Telefonnummer
-        pflichtfelder_ausgefuellt = (name and vorname and geburtsort and email_adresse and telefon_nummer 
-                                     and pflicht_dateien and pflicht_kennzeichen and datenschutz_akzeptiert and pflicht_wf)
+        # Pflichtfelder einzeln prüfen, damit genau angezeigt wird, was fehlt
+        pflicht_kennzeichen = bool(neufahrzeug or str(kennzeichen).strip())
+        fehlende_felder = []
+        if not str(name).strip(): fehlende_felder.append("Nachname")
+        if not str(vorname).strip(): fehlende_felder.append("Vorname")
+        if not str(geburtsort).strip(): fehlende_felder.append("Geburtsort")
+        if not str(email_adresse).strip(): fehlende_felder.append("E-Mail-Adresse")
+        if not str(telefon_nummer).strip(): fehlende_felder.append("Telefonnummer")
+        if not pflicht_kennzeichen: fehlende_felder.append("Amtliches Kennzeichen")
+        if not is_editing_existing:
+            if fahrzeugschein is None: fehlende_felder.append("Fahrzeugschein")
+            if police is None: fehlende_felder.append("Letzte Versicherungspolice")
+        if not datenschutz_akzeptiert: fehlende_felder.append("Datenschutz-Einwilligung")
+        pflichtfelder_ausgefuellt = len(fehlende_felder) == 0
         if pflichtfelder_ausgefuellt:
             if st.button("DATEN JETZT SICHER ÜBERTRAGEN", type="primary"):
                 
@@ -1098,8 +1135,16 @@ Weitere Fahrer: {wf_text_for_doc}
                                 "nicht vollständig in der CSV gespeichert werden. "
                                 "Bitte wenden Sie sich an Ihren Ansprechpartner."
                             )
+                else:
+                    st.warning(
+                        "⚠️ Keine Verbindung zu OneDrive. "
+                        "Die Daten wurden nur lokal gesichert."
+                    )
         else:
-            st.warning("⚠️ Bitte füllen Sie alle mit * markierten Felder aus, laden Sie die Pflichtdokumente hoch und bestätigen Sie die Datenschutzerklärung, um die Übertragung zu starten.")
+            st.warning(
+                "⚠️ Folgende Pflichtangaben fehlen noch:\n\n"
+                + "\n".join([f"• {feld}" for feld in fehlende_felder])
+            )
     # 6. STIMMUNGSBILD GANZ UNTEN
     THEME_BILD = "pg-finance-theme.jpg"
     if os.path.exists(THEME_BILD):
